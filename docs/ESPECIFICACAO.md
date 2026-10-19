@@ -1,4 +1,4 @@
-# Recipay — Especificação (v0.4, rascunho)
+# Recipay — Especificação (v0.5, rascunho)
 
 Documento para orientar o desenvolvimento. Os itens marcados com **[DECIDIR]** ainda precisam de definição. Ver a seção 10.
 
@@ -12,6 +12,7 @@ Documento para orientar o desenvolvimento. Os itens marcados com **[DECIDIR]** a
 | D-04 | **Os comprovantes vão dentro dos arquivos trocados.** O arquivo de recibos leva os comprovantes das despesas. Pela mesma lógica, o arquivo de retorno leva os comprovantes bancários. |
 | D-05 | **Backup manual.** Um botão "Exportar backup" gera um arquivo com todos os dados e comprovantes, e esse arquivo pode ser restaurado depois. |
 | D-06 | **Plataforma: programa para PC com Windows** (substitui o app Android). Distribuído como pasta portátil com `Recipay.exe`, que roda sem instalação nem permissão de administrador. |
+| D-07 | **Os arquivos trocados são planilhas Excel (.xlsx)**, tanto o de recibos (supervisor → gestor) quanto o de retorno (gestor → supervisor). O PDF deixa de ser o formato de troca. |
 
 ---
 
@@ -77,15 +78,15 @@ Controlar recibos de despesas, pagamentos Pix, comprovantes e pendências entre 
 ### 4.4 Pagamento (Gestor)
 1. Filtra as pendências por supervisor, equipe ou colaborador.
 2. Abre um colaborador e vê os recibos em aberto, com o saldo de cada um e o total, além da chave Pix e do titular.
-3. Seleciona um ou mais recibos desse colaborador (D-03). O app sugere o valor total dos saldos, e o gestor pode alterar o valor.
+3. Seleciona um ou mais recibos desse colaborador (D-03). O programa sugere o valor total dos saldos, e o gestor pode alterar o valor.
 4. Opcionalmente gera o QR Code Pix com o valor da transferência.
 5. Faz **um** Pix no app do banco.
 6. Registra a **transferência**: data, valor total, comprovante bancário e, opcionalmente, outra chave usada só nela (RN-10).
-7. Se o valor for menor que a soma dos saldos, o app distribui automaticamente do recibo mais antigo para o mais novo, e o gestor pode ajustar antes de confirmar (RN-14).
+7. Se o valor for menor que a soma dos saldos, o programa distribui automaticamente do recibo mais antigo para o mais novo, e o gestor pode ajustar antes de confirmar (RN-14).
 8. O sistema recalcula os saldos. Cada recibo passa a `PARCIAL` ou `PAGO`.
 
 ### 4.5 Retorno (Gestor → Supervisor)
-1. O gestor escolhe o supervisor e gera o PDF de retorno com as transferências ainda não exportadas para ele. Cada supervisor recebe apenas os pagamentos dos próprios recibos.
+1. O gestor escolhe o supervisor e gera a planilha de retorno com as transferências ainda não exportadas para ele. Cada supervisor recebe apenas os pagamentos dos próprios recibos.
 2. O supervisor importa e vê uma **prévia**: pagamentos novos, pagamentos já conhecidos e recibos que não são dele ou que ele não reconhece.
 3. Ao confirmar, os pagamentos novos são aplicados e os saldos são atualizados. Duplicados são ignorados (RN-08).
 
@@ -166,20 +167,27 @@ Historico     id, entidade, entidade_id, acao, detalhes (JSON),
               usuario, perfil, data_hora
 ```
 
-Comprovantes ficam como arquivos no armazenamento do app. O banco guarda só o caminho e o hash do arquivo.
+Comprovantes ficam como arquivos no pasta de dados do programa. O banco guarda só o caminho e o hash do arquivo.
 
-## 8. Arquivos de importação e exportação
+## 8. Arquivos de importação e exportação (D-07: Excel)
 
-O PDF serve para leitura humana, mas **ler dados de um PDF é frágil**. Proposta:
+Os arquivos trocados são planilhas `.xlsx` que abrem normalmente no Excel. Cada arquivo tem:
 
-- **Todo arquivo exportado leva os dados estruturados embutidos** (JSON anexado dentro do próprio PDF), além da parte visual.
-- Na importação, o app lê o JSON embutido. Se ele não existir (PDF de outra origem), recusa com uma mensagem clara.
-- O JSON tem `versao_formato`, `lote_id`, `gerado_em`, `gerado_por` e a lista de itens com seus UUIDs, mais um `hash` do conteúdo para detectar arquivo alterado.
-- **Excel**: export opcional para conferência e planilhas. **[DECIDIR]** se o Excel também pode ser importado ou se fica só como relatório.
-- **Comprovantes (D-04)**: vão anexados dentro do PDF. Cada um aparece numa página para leitura e também vai como arquivo original, junto com o hash, para o app conferir na importação.
-  - Para o arquivo não ficar grande demais, fotos são reduzidas ao serem anexadas (ex.: lado maior com no máximo 1600 px, em JPEG). PDFs de comprovante são mantidos como estão.
-  - Se o arquivo passar de cerca de **20 MB** (limite comum de e-mail), o app avisa e sugere dividir em mais de um lote.
-  - Na importação, um comprovante com hash diferente do registrado bloqueia o item e mostra um aviso na prévia.
+| Aba | Para quem | Conteúdo |
+|---|---|---|
+| **Recibos** (ou **Pagamentos**, no retorno) | Pessoas | Tabela legível: colaborador, equipe, data, descrição, valor, situação. Totais no fim. |
+| **Colaboradores** | Pessoas | Nome, equipe, tipo e chave Pix, titular (só no arquivo de recibos). |
+| **Comprovantes** | Pessoas | Miniatura de cada comprovante em foto, com a referência do recibo. Comprovantes em PDF aparecem como "PDF anexado". |
+| **_recipay** (oculta) | Programa | Dados completos em JSON: `versao_formato`, `tipo` (RECIBOS ou RETORNO), `lote_id`, `gerado_por` (ID e nome), `gerado_em`, itens com UUIDs, e os comprovantes originais (foto reduzida ou PDF) em base64, cada um com seu hash SHA-256. |
+
+Regras:
+
+- **A importação usa só a aba oculta.** As abas visíveis são para conferência.
+- **Planilha alterada:** se alguém mudar valores nas abas visíveis depois da exportação, a prévia da importação avisa a diferença e bloqueia o lote. O arquivo também tem um hash do conteúdo da aba oculta, para detectar edição.
+- **Planilha de outra origem** (sem a aba `_recipay`) é recusada com uma mensagem clara. Planilhas de colaboradores continuam com a importação própria (seção 4.1 do cadastro).
+- **Comprovantes (D-04):** fotos são reduzidas ao serem anexadas (lado maior com no máximo 1600 px, em JPEG). PDFs são mantidos como estão. Na importação, um comprovante com hash diferente do registrado bloqueia o item.
+- **Tamanho:** se o arquivo passar de cerca de **20 MB** (limite comum de e-mail), o programa avisa e sugere dividir em mais de um lote.
+- **Nome sugerido:** `recibos_<supervisor>_<data>.xlsx` e `retorno_<supervisor>_<data>.xlsx`. O nome do arquivo não importa para evitar duplicidade (RN-08).
 
 ### Backup (D-05)
 
@@ -187,7 +195,7 @@ O PDF serve para leitura humana, mas **ler dados de um PDF é frágil**. Propost
 - O arquivo é **criptografado com uma senha de backup** escolhida pelo usuário, porque contém nomes e chaves Pix (LGPD). Sem a senha, não é possível restaurar.
 - O usuário escolhe onde salvar o arquivo, por exemplo num pendrive, no OneDrive ou no Google Drive. Não use a mesma pasta dos dados do programa.
 - **"Restaurar backup"** só está disponível na configuração inicial do programa num computador ou depois de uma confirmação explícita, porque substitui todos os dados.
-- O app mostra um lembrete se o último backup tiver mais de 7 dias.
+- O programa mostra um lembrete se o último backup tiver mais de 7 dias.
 
 ### Planilha de colaboradores (importação)
 
@@ -200,9 +208,7 @@ Colunas: `nome`, `equipe`, `chave_pix`, `tipo_chave`, `titular_pix`. A importaç
 | Linguagem | Python 3 | Grátis |
 | Interface | PySide6 (Qt), com tema próprio em branco e azul | Grátis (LGPL) |
 | Banco local | SQLite (já vem com o Python) | Grátis |
-| Gerar PDF | ReportLab | Grátis (BSD) |
-| Anexar dados e comprovantes no PDF | pikepdf | Grátis (MPL) |
-| Excel | openpyxl | Grátis (MIT) |
+| Excel (troca de arquivos e planilha de colaboradores) | openpyxl | Grátis (MIT) |
 | Imagens | Pillow (reduzir fotos) | Grátis |
 | QR Code Pix | BR Code estático (padrão EMV do Banco Central) + biblioteca `qrcode` | Grátis |
 | Criptografia do backup | `cryptography` | Grátis |
@@ -221,7 +227,7 @@ Colunas: `nome`, `equipe`, `chave_pix`, `tipo_chave`, `titular_pix`. A importaç
 
 1. ~~Servidor ou não?~~ Decidido: D-01.
 2. ~~Quantidade de usuários~~ Decidido: D-02. **Falta confirmar** que cada pessoa usa o próprio computador.
-3. Excel também importável ou só PDF?
+3. ~~Formato dos arquivos~~ Decidido: D-07 (Excel).
 4. ~~Comprovantes nos arquivos~~ Decidido: D-04.
 5. ~~Vários supervisores~~ Coberto por D-02 (lotes e retornos identificados por supervisor).
 6. ~~Um Pix para vários recibos~~ Decidido: D-03.

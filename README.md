@@ -12,10 +12,10 @@ Programa para PC (Windows) para organizar recibos de despesas e controlar pagame
 ## Fluxo resumido
 
 1. O supervisor cadastra os recibos (com comprovante obrigatório).
-2. O supervisor exporta os recibos (PDF/Excel) e envia ao gestor.
+2. O supervisor exporta os recibos numa planilha Excel e envia ao gestor.
 3. O gestor importa o arquivo. Os recibos entram na fila de pagamentos.
 4. O gestor faz o Pix no banco e registra o pagamento no Recipay (aceita pagamento parcial).
-5. O gestor exporta o PDF de retorno. O supervisor importa, confere a prévia e confirma.
+5. O gestor exporta a planilha de retorno. O supervisor importa, confere a prévia e confirma.
 
 ## Princípios
 

@@ -28,3 +28,14 @@ def pasta_comprovantes() -> Path:
     pasta = pasta_dados() / "comprovantes"
     pasta.mkdir(parents=True, exist_ok=True)
     return pasta
+
+
+def limpar_temporarios() -> None:
+    """Apaga imagens coladas que ficaram da sessão anterior (já copiadas para comprovantes)."""
+    pasta = pasta_dados() / "temp"
+    if pasta.is_dir():
+        for arquivo in pasta.iterdir():
+            try:
+                arquivo.unlink()
+            except OSError:
+                pass

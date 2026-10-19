@@ -20,6 +20,7 @@ def main() -> int:
     # O programa só fecha quando o usuário fecha a janela principal ou cancela o login.
     app.setQuitOnLastWindowClosed(False)
 
+    config.limpar_temporarios()
     con = db.conectar(config.caminho_banco())
 
     usuario = usuario_local(con)

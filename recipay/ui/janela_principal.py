@@ -18,10 +18,13 @@ from PySide6.QtWidgets import (
 from recipay import __version__
 from recipay.auth import Usuario
 from recipay.ui.tela_colaboradores import TelaColaboradores
+from recipay.ui.tela_recibos import TelaCadastrarRecibos, TelaRecibos
 
 # Telas já construídas. As demais aparecem como "em construção".
 TELAS_PRONTAS = {
     "Colaboradores": TelaColaboradores,
+    "Recibos": TelaRecibos,
+    "Cadastrar recibos": TelaCadastrarRecibos,
 }
 
 # Telas de cada perfil (seção 6 da especificação).
@@ -102,13 +105,19 @@ class JanelaPrincipal(QMainWindow):
             self.menu.addItem(titulo)
             fabrica = TELAS_PRONTAS.get(titulo)
             self.telas.addWidget(fabrica(con, usuario) if fabrica else TelaEmConstrucao(titulo))
-        self.menu.currentRowChanged.connect(self.telas.setCurrentIndex)
+        self.menu.currentRowChanged.connect(self._abrir_tela)
         self.menu.setCurrentRow(0)
         corpo.addWidget(self.menu)
         corpo.addWidget(self.telas, 1)
         raiz.addLayout(corpo, 1)
 
         self.setCentralWidget(central)
+
+    def _abrir_tela(self, indice: int) -> None:
+        self.telas.setCurrentIndex(indice)
+        tela = self.telas.widget(indice)
+        if hasattr(tela, "atualizar"):
+            tela.atualizar()  # mostra dados novos cadastrados em outras telas
 
     def _sair(self) -> None:
         self._saindo = True
