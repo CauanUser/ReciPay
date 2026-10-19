@@ -10,6 +10,7 @@ from recipay.auth import autenticar, conferir_senha, criar_usuario_local, gerar_
 class TestBanco(unittest.TestCase):
     def setUp(self):
         self.con = db.conectar(":memory:")
+        self.addCleanup(self.con.close)
 
     def test_schema_criado(self):
         versao = self.con.execute("PRAGMA user_version").fetchone()[0]
@@ -68,6 +69,7 @@ class TestBanco(unittest.TestCase):
 class TestLogin(unittest.TestCase):
     def setUp(self):
         self.con = db.conectar(":memory:")
+        self.addCleanup(self.con.close)
 
     def test_hash_de_senha(self):
         h = gerar_hash("segredo1")

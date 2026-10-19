@@ -83,6 +83,28 @@ QListWidget#menu::item:selected {{
     background: {AZUL};
     color: #FFFFFF;
 }}
+QTableView, QTableWidget {{
+    border: 1px solid {BORDA};
+    border-radius: 6px;
+    gridline-color: {BORDA};
+    alternate-background-color: {FUNDO_MENU};
+    selection-background-color: {AZUL_CLARO};
+    selection-color: {TEXTO};
+}}
+QTableView::item, QTableWidget::item {{
+    padding: 4px 10px;
+}}
+QHeaderView::section {{
+    background: {FUNDO_MENU};
+    color: {TEXTO_SUAVE};
+    font-weight: 600;
+    border: none;
+    border-bottom: 1px solid {BORDA};
+    padding: 8px 10px;
+}}
+QCheckBox {{
+    spacing: 6px;
+}}
 QFrame#cabecalho {{
     background: {AZUL};
 }}

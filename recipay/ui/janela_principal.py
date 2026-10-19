@@ -1,5 +1,7 @@
 """Janela principal: cabeçalho, menu lateral e área das telas."""
 
+import sqlite3
+
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QFrame,
@@ -15,6 +17,12 @@ from PySide6.QtWidgets import (
 
 from recipay import __version__
 from recipay.auth import Usuario
+from recipay.ui.tela_colaboradores import TelaColaboradores
+
+# Telas já construídas. As demais aparecem como "em construção".
+TELAS_PRONTAS = {
+    "Colaboradores": TelaColaboradores,
+}
 
 # Telas de cada perfil (seção 6 da especificação).
 TELAS = {
@@ -55,8 +63,9 @@ class JanelaPrincipal(QMainWindow):
     sair = Signal()  # botão "Sair": volta para o login
     fechada = Signal()  # janela fechada pelo "X": encerra o programa
 
-    def __init__(self, usuario: Usuario):
+    def __init__(self, con: sqlite3.Connection, usuario: Usuario):
         super().__init__()
+        self.con = con
         self.usuario = usuario
         self._saindo = False
         self.setWindowTitle(f"Recipay {__version__} — {usuario.perfil_nome}")
@@ -91,7 +100,8 @@ class JanelaPrincipal(QMainWindow):
         self.telas = QStackedWidget()
         for titulo in TELAS[usuario.perfil]:
             self.menu.addItem(titulo)
-            self.telas.addWidget(TelaEmConstrucao(titulo))
+            fabrica = TELAS_PRONTAS.get(titulo)
+            self.telas.addWidget(fabrica(con, usuario) if fabrica else TelaEmConstrucao(titulo))
         self.menu.currentRowChanged.connect(self.telas.setCurrentIndex)
         self.menu.setCurrentRow(0)
         corpo.addWidget(self.menu)

@@ -36,7 +36,7 @@ def main() -> int:
         if login.exec() != QDialog.DialogCode.Accepted:
             app.quit()
             return
-        janela = JanelaPrincipal(login.usuario)
+        janela = JanelaPrincipal(con, login.usuario)
         janela.sair.connect(abrir_login)
         janela.fechada.connect(app.quit)
         estado["janela"] = janela
