@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 from recipay import __version__
 from recipay.auth import Usuario
 from recipay.ui.tela_colaboradores import TelaColaboradores
+from recipay.ui.tela_pagamento import TelaPagamentosConcluidos, TelaRealizarPagamento
 from recipay.ui.tela_recibos import TelaCadastrarRecibos, TelaRecibos
 from recipay.ui.tela_troca import TelaExportarRecibos, TelaImportarArquivo, TelaPagamentosPendentes
 
@@ -29,6 +30,8 @@ TELAS_PRONTAS = {
     "Exportar recibos": TelaExportarRecibos,
     "Importar arquivo": TelaImportarArquivo,
     "Pagamentos pendentes": TelaPagamentosPendentes,
+    "Realizar pagamento": TelaRealizarPagamento,
+    "Pagamentos concluídos": TelaPagamentosConcluidos,
 }
 
 # Telas de cada perfil (seção 6 da especificação).
@@ -110,12 +113,27 @@ class JanelaPrincipal(QMainWindow):
             fabrica = TELAS_PRONTAS.get(titulo)
             self.telas.addWidget(fabrica(con, usuario) if fabrica else TelaEmConstrucao(titulo))
         self.menu.currentRowChanged.connect(self._abrir_tela)
+        self._ligar_telas()
         self.menu.setCurrentRow(0)
         corpo.addWidget(self.menu)
         corpo.addWidget(self.telas, 1)
         raiz.addLayout(corpo, 1)
 
         self.setCentralWidget(central)
+
+    def _tela(self, titulo: str):
+        titulos = TELAS[self.usuario.perfil]
+        return (titulos.index(titulo), self.telas.widget(titulos.index(titulo))) if titulo in titulos else (-1, None)
+
+    def _ligar_telas(self) -> None:
+        """Atalho: da fila de pendentes direto para o pagamento do colaborador."""
+        _, pendentes = self._tela("Pagamentos pendentes")
+        indice, pagamento = self._tela("Realizar pagamento")
+        if pendentes and pagamento:
+            def ir(colaborador_id: str) -> None:
+                self.menu.setCurrentRow(indice)
+                pagamento.selecionar_colaborador(colaborador_id)
+            pendentes.ir_para_pagamento = ir
 
     def _abrir_tela(self, indice: int) -> None:
         self.telas.setCurrentIndex(indice)

@@ -352,9 +352,7 @@ class TelaImportarArquivo(QWidget):
 
 
 class TelaPagamentosPendentes(QWidget):
-    """Fila do gestor: recibos importados ainda não quitados.
-
-    (O registro do pagamento vem na próxima etapa.)"""
+    """Fila do gestor: recibos importados ainda não quitados."""
 
     def __init__(self, con: sqlite3.Connection, usuario: Usuario):
         super().__init__()
@@ -380,8 +378,12 @@ class TelaPagamentosPendentes(QWidget):
         self.bt_comprov = QPushButton("Ver comprovante")
         self.bt_comprov.setObjectName("secundario")
         self.bt_comprov.clicked.connect(self._ver_comprovante)
+        self.bt_pagar = QPushButton("Pagar este colaborador →")
+        self.bt_pagar.clicked.connect(self._pagar)
         acoes.addWidget(self.bt_comprov)
         acoes.addStretch()
+        acoes.addWidget(self.bt_pagar)
+        self.ir_para_pagamento = None  # definido pela janela principal
         layout.addLayout(acoes)
 
         self.modelo = ModeloRecibos()
@@ -426,11 +428,18 @@ class TelaPagamentosPendentes(QWidget):
         self.modelo.definir(itens)
         self.tabela.resizeColumnsToContents()
         aberto = sum(r.saldo_centavos for r in itens)
-        self.resumo.setText(f"{len(itens)} recibo(s) em aberto · Saldo a pagar {dinheiro.formatar(aberto)}"
-                            " · O registro de pagamento chega na próxima etapa.")
+        self.resumo.setText(f"{len(itens)} recibo(s) em aberto · Saldo a pagar {dinheiro.formatar(aberto)}")
 
     def _ver_comprovante(self, *_) -> None:
         linhas = self.tabela.selectionModel().selectedRows()
         if linhas:
             r = self.modelo.itens[linhas[0].row()]
             abrir_arquivo(comprovantes.caminho_absoluto(r.comprovante_arquivo), self)
+
+    def _pagar(self) -> None:
+        linhas = self.tabela.selectionModel().selectedRows()
+        if not linhas:
+            QMessageBox.information(self, "Pagar", "Selecione um recibo do colaborador que vai receber.")
+            return
+        if self.ir_para_pagamento:
+            self.ir_para_pagamento(self.modelo.itens[linhas[0].row()].colaborador_id)
