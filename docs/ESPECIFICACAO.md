@@ -1,4 +1,4 @@
-# Recipay — Especificação (v0.3, rascunho)
+# Recipay — Especificação (v0.4, rascunho)
 
 Documento para orientar o desenvolvimento. Os itens marcados com **[DECIDIR]** ainda precisam de definição. Ver a seção 10.
 
@@ -6,11 +6,12 @@ Documento para orientar o desenvolvimento. Os itens marcados com **[DECIDIR]** a
 
 | # | Decisão |
 |---|---|
-| D-01 | **Custo zero, sem servidor.** Os dados ficam em cada aparelho, e a troca entre supervisor e gestor é feita por arquivos. |
-| D-02 | **Usuários: 3 supervisores e 1 gestor.** Premissa a confirmar: cada pessoa usa o próprio celular. |
+| D-01 | **Custo zero, sem servidor.** Os dados ficam em cada computador, e a troca entre supervisor e gestor é feita por arquivos. |
+| D-02 | **Usuários: 3 supervisores e 1 gestor.** Premissa a confirmar: cada pessoa usa o próprio computador. |
 | D-03 | **Um Pix pode quitar vários recibos do mesmo colaborador**, inclusive com valores parciais em cada recibo. |
 | D-04 | **Os comprovantes vão dentro dos arquivos trocados.** O arquivo de recibos leva os comprovantes das despesas. Pela mesma lógica, o arquivo de retorno leva os comprovantes bancários. |
 | D-05 | **Backup manual.** Um botão "Exportar backup" gera um arquivo com todos os dados e comprovantes, e esse arquivo pode ser restaurado depois. |
+| D-06 | **Plataforma: programa para PC com Windows** (substitui o app Android). Distribuído como pasta portátil com `Recipay.exe`, que roda sem instalação nem permissão de administrador. |
 
 ---
 
@@ -50,9 +51,10 @@ Controlar recibos de despesas, pagamentos Pix, comprovantes e pendências entre 
 | Gestor | Importar recibos, ver pendências, registrar pagamentos, exportar retorno, ver pagamentos concluídos. |
 
 - A tela inicial oferece a escolha do perfil e o login. **A escolha não concede permissões**: o sistema usa o perfil gravado na conta.
-- **Login sem servidor (D-01)**: no primeiro uso, o aparelho é configurado com nome do usuário, perfil e PIN. Depois disso, o login pede o PIN e só libera o perfil gravado. Para trocar o perfil de um aparelho, é preciso reconfigurá-lo.
+- **Login sem servidor (D-01)**: no primeiro uso, o programa é configurado no computador com nome do usuário, perfil e senha. Depois disso, o login pede a senha e só libera o perfil gravado. Para trocar o perfil de um computador, é preciso reconfigurá-lo.
+- Os dados ficam na pasta do usuário do Windows (`%LOCALAPPDATA%\Recipay`), separados por usuário do Windows.
 - Cada usuário tem um **ID (UUID)** que vai em todos os arquivos que ele gera. É assim que o gestor sabe de qual supervisor veio cada lote.
-- Como não há servidor, o PIN protege o uso do app no aparelho, mas não impede que alguém instale o app em outro celular. A segurança dos arquivos trocados vem do hash e da prévia antes de importar (seção 8).
+- Como não há servidor, a senha protege o uso do programa naquele computador, mas não impede que alguém instale o programa em outro PC. A segurança dos arquivos trocados vem do hash e da prévia antes de importar (seção 8).
 
 ## 4. Fluxos
 
@@ -65,7 +67,7 @@ Controlar recibos de despesas, pagamentos Pix, comprovantes e pendências entre 
 ### 4.2 Exportação de recibos (Supervisor)
 1. Seleciona os recibos e gera o arquivo do lote (ver seção 8). O arquivo leva junto os dados dos colaboradores envolvidos (nome, equipe, chave Pix, tipo e titular), porque o gestor precisa da chave para pagar.
 2. Os recibos passam a `ENVIADO`. Após exportados, não podem mais ser editados. Correções só pela regra RN-12.
-3. Compartilha o arquivo (WhatsApp, e-mail etc.) usando o compartilhamento do Android.
+3. Escolhe onde salvar o arquivo e o envia ao gestor pelo meio que preferir (e-mail, Teams, WhatsApp Web, pendrive). Depois de salvar, o programa oferece abrir a pasta do arquivo.
 
 ### 4.3 Importação de recibos (Gestor)
 1. Abre o arquivo e vê uma **prévia**: supervisor de origem, quantidade, total, recibos novos e já existentes, e colaboradores novos ou com chave Pix diferente da que o gestor já tem.
@@ -114,7 +116,7 @@ RASCUNHO → ENVIADO → PENDENTE → PARCIAL → PAGO
                          ↘ CANCELADO (com motivo)
 ```
 
-`RASCUNHO` e `ENVIADO` existem no aparelho do supervisor. A partir de `PENDENTE`, o status vem do gestor.
+`RASCUNHO` e `ENVIADO` existem no computador do supervisor. A partir de `PENDENTE`, o status vem do gestor.
 
 ## 6. Telas
 
@@ -143,7 +145,7 @@ Recibo        id (UUID), colaborador_id, supervisor_id, equipe,
 Lote          id (UUID), tipo (RECIBOS | RETORNO), gerado_por, gerado_em,
               hash_conteudo, qtd_itens, total_centavos
 
-Usuario       id (UUID), nome, perfil (SUPERVISOR | GESTOR), pin_hash
+Usuario       id (UUID), nome, perfil (SUPERVISOR | GESTOR), senha_hash
               (o gestor guarda também os supervisores de quem recebeu arquivos)
 
 Transferencia id (UUID), colaborador_id, valor_centavos, data_pagamento,
@@ -174,41 +176,65 @@ O PDF serve para leitura humana, mas **ler dados de um PDF é frágil**. Propost
 - Na importação, o app lê o JSON embutido. Se ele não existir (PDF de outra origem), recusa com uma mensagem clara.
 - O JSON tem `versao_formato`, `lote_id`, `gerado_em`, `gerado_por` e a lista de itens com seus UUIDs, mais um `hash` do conteúdo para detectar arquivo alterado.
 - **Excel**: export opcional para conferência e planilhas. **[DECIDIR]** se o Excel também pode ser importado ou se fica só como relatório.
-- **Comprovantes**: **[DECIDIR]** se as imagens vão dentro do arquivo (fica maior) ou ficam só no aparelho de origem.
+- **Comprovantes (D-04)**: vão anexados dentro do PDF. Cada um aparece numa página para leitura e também vai como arquivo original, junto com o hash, para o app conferir na importação.
+  - Para o arquivo não ficar grande demais, fotos são reduzidas ao serem anexadas (ex.: lado maior com no máximo 1600 px, em JPEG). PDFs de comprovante são mantidos como estão.
+  - Se o arquivo passar de cerca de **20 MB** (limite comum de e-mail), o app avisa e sugere dividir em mais de um lote.
+  - Na importação, um comprovante com hash diferente do registrado bloqueia o item e mostra um aviso na prévia.
+
+### Backup (D-05)
+
+- Em Configurações, o botão **"Exportar backup"** gera um único arquivo `.recipay-backup` com o banco de dados, os comprovantes e a configuração do usuário.
+- O arquivo é **criptografado com uma senha de backup** escolhida pelo usuário, porque contém nomes e chaves Pix (LGPD). Sem a senha, não é possível restaurar.
+- O usuário escolhe onde salvar o arquivo, por exemplo num pendrive, no OneDrive ou no Google Drive. Não use a mesma pasta dos dados do programa.
+- **"Restaurar backup"** só está disponível na configuração inicial do programa num computador ou depois de uma confirmação explícita, porque substitui todos os dados.
+- O app mostra um lembrete se o último backup tiver mais de 7 dias.
 
 ### Planilha de colaboradores (importação)
 
 Colunas: `nome`, `equipe`, `chave_pix`, `tipo_chave`, `titular_pix`. A importação mostra uma prévia com erros por linha antes de gravar.
 
-## 9. Tecnologia (proposta)
+## 9. Tecnologia (D-06: PC com Windows)
 
-| Item | Proposta | Custo |
+| Item | Escolha | Custo |
 |---|---|---|
-| Linguagem/UI | Kotlin + Jetpack Compose (Material 3) | Grátis |
-| Banco local | Room (SQLite) | Grátis |
-| PDF | API nativa do Android (`PdfDocument`) **[DECIDIR]** como embutir o JSON | Grátis |
-| Excel | Biblioteca leve de .xlsx **[DECIDIR]** | Grátis |
-| QR Code Pix | BR Code estático (padrão EMV do Banco Central) + gerador de QR (ex.: ZXing) | Grátis |
-| Build | Android Studio + GitHub | Grátis |
+| Linguagem | Python 3 | Grátis |
+| Interface | PySide6 (Qt), com tema próprio em branco e azul | Grátis (LGPL) |
+| Banco local | SQLite (já vem com o Python) | Grátis |
+| Gerar PDF | ReportLab | Grátis (BSD) |
+| Anexar dados e comprovantes no PDF | pikepdf | Grátis (MPL) |
+| Excel | openpyxl | Grátis (MIT) |
+| Imagens | Pillow (reduzir fotos) | Grátis |
+| QR Code Pix | BR Code estático (padrão EMV do Banco Central) + biblioteca `qrcode` | Grátis |
+| Criptografia do backup | `cryptography` | Grátis |
+| Gerar o .exe | PyInstaller (pasta portátil, sem instalador) | Grátis |
+| Editor | VS Code + GitHub | Grátis |
 
-**Decidido (D-01)**: a v1 funciona **sem servidor** (dados em cada aparelho, troca por arquivos). A sincronização em nuvem só será avaliada numa fase posterior, se for necessária e puder continuar gratuita.
+**Por que Python + PySide6:** todas as peças são gratuitas e maduras, e lidam bem com PDF, Excel e imagens. O resultado é um `.exe` portátil, que roda mesmo em PCs da empresa onde não é possível instalar programas. Os usuários finais **não precisam instalar Python**.
+
+**Comprovantes no PC:** o usuário anexa o arquivo (JPG, PNG ou PDF) pelo botão "Anexar", **arrastando e soltando** o arquivo na tela ou **colando** uma imagem copiada (Ctrl+V), por exemplo uma captura de tela.
+
+**Layout:** uma janela com menu lateral fixo (as telas da seção 6) e tabelas com filtro e ordenação. Pensado para mouse e teclado, com tamanho mínimo de 1280×720.
+
+**Decidido (D-01)**: a v1 funciona **sem servidor** (dados em cada computador, troca por arquivos). A sincronização em nuvem só será avaliada numa fase posterior, se for necessária e puder continuar gratuita.
 
 ## 10. Decisões em aberto
 
 1. ~~Servidor ou não?~~ Decidido: D-01.
-2. ~~Quantidade de usuários~~ Decidido: D-02. **Falta confirmar** que cada pessoa usa o próprio celular.
+2. ~~Quantidade de usuários~~ Decidido: D-02. **Falta confirmar** que cada pessoa usa o próprio computador.
 3. Excel também importável ou só PDF?
-4. Comprovantes vão dentro dos arquivos trocados? Sem servidor, se não forem, o gestor só vê o comprovante da despesa no celular do supervisor.
+4. ~~Comprovantes nos arquivos~~ Decidido: D-04.
 5. ~~Vários supervisores~~ Coberto por D-02 (lotes e retornos identificados por supervisor).
 6. ~~Um Pix para vários recibos~~ Decidido: D-03.
-7. **Backup**: sem servidor, se o celular for perdido, os dados vão junto. Sugestão: botão "Exportar backup" que gera um arquivo para guardar no Google Drive ou e-mail.
-8. **LGPD**: chaves Pix e nomes são dados pessoais. Definir quem acessa, por quanto tempo os dados ficam guardados e a proteção do aparelho.
+7. ~~Backup~~ Decidido: D-05.
+8. **LGPD**: chaves Pix e nomes são dados pessoais. Definir quem acessa, por quanto tempo os dados ficam guardados e a proteção do computador.
 9. **Repositório**: o projeto é da empresa, mas o repositório está na conta pessoal do GitHub. Confirmar com o coordenador se isso é aceito ou se deve ir para uma conta da empresa.
 10. **Colaborador em mais de um supervisor**: se dois supervisores cadastrarem a mesma pessoa, o gestor verá dois registros. Sugestão: o gestor identifica pelo CPF ou pela chave Pix e pode juntar os dois.
+11. **Pasta compartilhada:** se a empresa tiver uma pasta de rede ou do OneDrive em comum, ela pode substituir o envio de arquivos por e-mail. O supervisor salva o arquivo lá e o gestor importa de lá. Avaliar depois da v1.
+12. **Política de TI:** confirmar que é permitido executar um `.exe` portátil nos PCs da empresa (alguns antivírus bloqueiam programas novos sem assinatura digital).
 
 ## 11. Próximos passos
 
 1. Responder às decisões da seção 10.
 2. Fazer os wireframes das telas principais.
-3. Criar o projeto Android (estrutura, tema e banco Room).
+3. Criar o projeto Python (estrutura, tema, banco SQLite e tela de login).
 4. Implementar na ordem: colaboradores → recibos → exportar/importar → pagamentos → retorno.

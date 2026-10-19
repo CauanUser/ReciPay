@@ -1,6 +1,6 @@
 # Recipay
 
-Aplicativo Android para organizar recibos de despesas e controlar pagamentos via Pix dentro de uma empresa. Ele substitui planilhas dispersas e facilita o controle de valores pendentes, pagamentos realizados e comprovantes.
+Programa para PC (Windows) para organizar recibos de despesas e controlar pagamentos via Pix dentro de uma empresa. Ele substitui planilhas dispersas e facilita o controle de valores pendentes, pagamentos realizados e comprovantes.
 
 > O Recipay **não faz transferências bancárias**. O gestor faz o Pix no aplicativo do banco e registra o pagamento no Recipay.
 
@@ -21,6 +21,7 @@ Aplicativo Android para organizar recibos de despesas e controlar pagamentos via
 
 - Simples, confiável e **custo R$ 0** (ferramentas e serviços gratuitos).
 - Visual em branco e azul, com verde para sucesso.
+- Roda como `.exe` portátil, sem instalação (Python + PySide6).
 - Histórico preservado e nenhum pagamento contado duas vezes.
 
 ## Situação
