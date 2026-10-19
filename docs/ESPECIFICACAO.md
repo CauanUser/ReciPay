@@ -1,4 +1,4 @@
-# Recipay — Especificação (v0.2, rascunho)
+# Recipay — Especificação (v0.3, rascunho)
 
 Documento para orientar o desenvolvimento. Os itens marcados com **[DECIDIR]** ainda precisam de definição. Ver a seção 10.
 
@@ -9,6 +9,8 @@ Documento para orientar o desenvolvimento. Os itens marcados com **[DECIDIR]** a
 | D-01 | **Custo zero, sem servidor.** Os dados ficam em cada aparelho, e a troca entre supervisor e gestor é feita por arquivos. |
 | D-02 | **Usuários: 3 supervisores e 1 gestor.** Premissa a confirmar: cada pessoa usa o próprio celular. |
 | D-03 | **Um Pix pode quitar vários recibos do mesmo colaborador**, inclusive com valores parciais em cada recibo. |
+| D-04 | **Os comprovantes vão dentro dos arquivos trocados.** O arquivo de recibos leva os comprovantes das despesas. Pela mesma lógica, o arquivo de retorno leva os comprovantes bancários. |
+| D-05 | **Backup manual.** Um botão "Exportar backup" gera um arquivo com todos os dados e comprovantes, e esse arquivo pode ser restaurado depois. |
 
 ---
 
@@ -189,19 +191,20 @@ Colunas: `nome`, `equipe`, `chave_pix`, `tipo_chave`, `titular_pix`. A importaç
 | QR Code Pix | BR Code estático (padrão EMV do Banco Central) + gerador de QR (ex.: ZXing) | Grátis |
 | Build | Android Studio + GitHub | Grátis |
 
-**Sugestão para a v1**: funcionar **sem servidor** (dados em cada aparelho, troca por arquivos). Isso já combina com o fluxo de exportar e importar e mantém o custo em R$ 0. A sincronização em nuvem fica para uma fase posterior, se for necessária.
+**Decidido (D-01)**: a v1 funciona **sem servidor** (dados em cada aparelho, troca por arquivos). A sincronização em nuvem só será avaliada numa fase posterior, se for necessária e puder continuar gratuita.
 
 ## 10. Decisões em aberto
 
-1. **Servidor ou não?** Sem servidor (v1 sugerida) ou com sincronização (ex.: planos gratuitos de Firebase ou Supabase, que têm limites).
-2. **Login**: sem servidor, cada aparelho teria usuário + PIN local. Quantos supervisores e gestores existem? Um aparelho é usado por mais de uma pessoa?
+1. ~~Servidor ou não?~~ Decidido: D-01.
+2. ~~Quantidade de usuários~~ Decidido: D-02. **Falta confirmar** que cada pessoa usa o próprio celular.
 3. Excel também importável ou só PDF?
-4. Comprovantes vão dentro dos arquivos trocados?
-5. Mais de um supervisor enviando para o mesmo gestor? Isso afeta os filtros e a identificação dos lotes.
-6. Um Pix pode quitar vários recibos de uma vez?
-7. Backup dos dados do aparelho (ex.: exportar backup manualmente).
+4. Comprovantes vão dentro dos arquivos trocados? Sem servidor, se não forem, o gestor só vê o comprovante da despesa no celular do supervisor.
+5. ~~Vários supervisores~~ Coberto por D-02 (lotes e retornos identificados por supervisor).
+6. ~~Um Pix para vários recibos~~ Decidido: D-03.
+7. **Backup**: sem servidor, se o celular for perdido, os dados vão junto. Sugestão: botão "Exportar backup" que gera um arquivo para guardar no Google Drive ou e-mail.
 8. **LGPD**: chaves Pix e nomes são dados pessoais. Definir quem acessa, por quanto tempo os dados ficam guardados e a proteção do aparelho.
 9. **Repositório**: o projeto é da empresa, mas o repositório está na conta pessoal do GitHub. Confirmar com o coordenador se isso é aceito ou se deve ir para uma conta da empresa.
+10. **Colaborador em mais de um supervisor**: se dois supervisores cadastrarem a mesma pessoa, o gestor verá dois registros. Sugestão: o gestor identifica pelo CPF ou pela chave Pix e pode juntar os dois.
 
 ## 11. Próximos passos
 
