@@ -33,6 +33,9 @@ class Recibo:
     status: str
     cancelamento_motivo: str | None
     criado_em: str
+    supervisor_id: str = ""
+    supervisor_nome: str = ""
+    lote_id: str | None = None
 
     @property
     def editavel(self) -> bool:
@@ -40,10 +43,11 @@ class Recibo:
 
 
 _SELECT = """
-SELECT r.*, c.nome AS colaborador_nome, s.saldo_centavos
+SELECT r.*, c.nome AS colaborador_nome, s.saldo_centavos, u.nome AS supervisor_nome
 FROM recibo r
 JOIN colaborador c ON c.id = r.colaborador_id
 JOIN recibo_saldo s ON s.recibo_id = r.id
+LEFT JOIN usuario u ON u.id = r.supervisor_id
 """
 
 
@@ -52,6 +56,7 @@ def _de_linha(l: sqlite3.Row) -> Recibo:
         l["id"], l["colaborador_id"], l["colaborador_nome"], l["equipe"], l["valor_centavos"],
         l["saldo_centavos"], l["descricao"], l["data_despesa"], l["comprovante_arquivo"],
         l["status"], l["cancelamento_motivo"], l["criado_em"],
+        l["supervisor_id"], l["supervisor_nome"] or "", l["lote_id"],
     )
 
 
@@ -151,15 +156,19 @@ def buscar(con: sqlite3.Connection, recibo_id: str) -> Recibo | None:
 
 def listar(
     con: sqlite3.Connection,
-    status: str | None = None,
+    status: str | tuple[str, ...] | None = None,
     equipe: str | None = None,
     busca: str = "",
     data_inicio: str | None = None,
     data_fim: str | None = None,
+    supervisor_id: str | None = None,
 ) -> list[Recibo]:
     sql = _SELECT + " WHERE 1 = 1"
     params: list = []
-    if status:
+    if isinstance(status, tuple):
+        sql += f" AND r.status IN ({','.join('?' * len(status))})"
+        params += list(status)
+    elif status:
         sql += " AND r.status = ?"
         params.append(status)
     if equipe:
@@ -169,6 +178,9 @@ def listar(
         sql += " AND (c.nome LIKE ? OR r.descricao LIKE ?)"
         termo = f"%{busca.strip()}%"
         params += [termo, termo]
+    if supervisor_id:
+        sql += " AND r.supervisor_id = ?"
+        params.append(supervisor_id)
     if data_inicio:
         sql += " AND r.data_despesa >= ?"
         params.append(data_inicio)

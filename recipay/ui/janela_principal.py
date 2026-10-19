@@ -19,12 +19,16 @@ from recipay import __version__
 from recipay.auth import Usuario
 from recipay.ui.tela_colaboradores import TelaColaboradores
 from recipay.ui.tela_recibos import TelaCadastrarRecibos, TelaRecibos
+from recipay.ui.tela_troca import TelaExportarRecibos, TelaImportarArquivo, TelaPagamentosPendentes
 
 # Telas já construídas. As demais aparecem como "em construção".
 TELAS_PRONTAS = {
     "Colaboradores": TelaColaboradores,
     "Recibos": TelaRecibos,
     "Cadastrar recibos": TelaCadastrarRecibos,
+    "Exportar recibos": TelaExportarRecibos,
+    "Importar arquivo": TelaImportarArquivo,
+    "Pagamentos pendentes": TelaPagamentosPendentes,
 }
 
 # Telas de cada perfil (seção 6 da especificação).
