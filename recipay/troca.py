@@ -150,16 +150,8 @@ def exportar_recibos(
 
     wb = _montar_planilha(lista, colabs, dados, texto_dados, hash_dados, arquivos_comprov)
 
-    # Grava num arquivo temporário e depois troca, para não deixar arquivo pela metade.
     caminho = Path(caminho)
-    fd, temporario = tempfile.mkstemp(suffix=".xlsx", dir=caminho.parent)
-    os.close(fd)
-    try:
-        wb.save(temporario)
-        os.replace(temporario, caminho)
-    except OSError as e:
-        Path(temporario).unlink(missing_ok=True)
-        raise OSError(f"Não foi possível salvar a planilha: {e}. Ela está aberta no Excel?") from e
+    _salvar_seguro(wb, caminho)
 
     with con:
         con.execute(
@@ -175,6 +167,48 @@ def exportar_recibos(
                                 {"lote_id": lote_id, "arquivo": caminho.name},
                                 usuario.id, usuario.perfil)
     return ResultadoExportacao(lote_id, len(lista), total, caminho.stat().st_size)
+
+
+def _escrever_dados_ocultos(wb: Workbook, texto_dados: str, hash_dados: str,
+                            arquivos: dict[str, bytes]) -> None:
+    """Aba oculta com os dados em JSON e os comprovantes em base64, em pedaços."""
+    wd = wb.create_sheet(ABA_DADOS)
+    wd.sheet_state = "veryHidden"
+    wd.append([MARCA, VERSAO_FORMATO, "Não altere esta aba."])
+    wd.append(["hash", 0, hash_dados])
+    for chave, texto in [("dados", texto_dados)] + [
+        (f"comp:{h}", base64.b64encode(b).decode("ascii")) for h, b in arquivos.items()
+    ]:
+        for n, inicio in enumerate(range(0, len(texto), TAMANHO_PEDACO)):
+            wd.append([chave, n, texto[inicio:inicio + TAMANHO_PEDACO]])
+
+
+def _salvar_seguro(wb: Workbook, caminho: Path) -> None:
+    """Grava num temporário e depois troca, para não deixar arquivo pela metade."""
+    fd, temporario = tempfile.mkstemp(suffix=".xlsx", dir=caminho.parent)
+    os.close(fd)
+    try:
+        wb.save(temporario)
+        os.replace(temporario, caminho)
+    except OSError as e:
+        Path(temporario).unlink(missing_ok=True)
+        raise OSError(f"Não foi possível salvar a planilha: {e}. Ela está aberta no Excel?") from e
+
+
+def _ler_comprovante(arquivo: str, hash_esperado: str, quem: str) -> bytes:
+    try:
+        conteudo = comprovantes.caminho_absoluto(arquivo).read_bytes()
+    except OSError as e:
+        raise ValueError(f"Comprovante de {quem} não encontrado no computador.") from e
+    if _sha256(conteudo) != hash_esperado:
+        raise ValueError(f"O comprovante de {quem} foi alterado fora do programa.")
+    return conteudo
+
+
+def _guardar_comprovante(conteudo: bytes, extensao: str) -> str:
+    destino = config.pasta_comprovantes() / f"{uuid.uuid4().hex}{extensao}"
+    destino.write_bytes(conteudo)
+    return destino.relative_to(config.pasta_dados()).as_posix()
 
 
 def _montar_planilha(lista, colabs, dados, texto_dados, hash_dados, arquivos_comprov) -> Workbook:
@@ -227,16 +261,7 @@ def _montar_planilha(lista, colabs, dados, texto_dados, hash_dados, arquivos_com
         for celula in linha:
             celula.alignment = Alignment(vertical="top")
 
-    # ---- Dados para o programa (oculta)
-    wd = wb.create_sheet(ABA_DADOS)
-    wd.sheet_state = "veryHidden"
-    wd.append([MARCA, VERSAO_FORMATO, "Não altere esta aba."])
-    wd.append(["hash", 0, hash_dados])
-    for chave, texto in [("dados", texto_dados)] + [
-        (f"comp:{h}", base64.b64encode(b).decode("ascii")) for h, b in arquivos_comprov.items()
-    ]:
-        for n, inicio in enumerate(range(0, len(texto), TAMANHO_PEDACO)):
-            wd.append([chave, n, texto[inicio:inicio + TAMANHO_PEDACO]])
+    _escrever_dados_ocultos(wb, texto_dados, hash_dados, arquivos_comprov)
     return wb
 
 
@@ -283,7 +308,9 @@ class PreviaImportacao:
         return sum(i.dados["valor_centavos"] for i in self.novos)
 
 
-def _ler_dados_ocultos(caminho: Path) -> tuple[dict, str, dict[str, bytes], dict[str, int]]:
+def _ler_dados_ocultos(
+    caminho: Path, aba_visivel: str = "Recibos", coluna_valor: int = 5
+) -> tuple[dict, str, dict[str, bytes], dict[str, set[int]]]:
     try:
         wb = load_workbook(caminho, read_only=True, data_only=True)
     except Exception as e:
@@ -307,11 +334,12 @@ def _ler_dados_ocultos(caminho: Path) -> tuple[dict, str, dict[str, bytes], dict
         juntar = {k: "".join(t for _, t in sorted(v)) for k, v in pedacos.items()}
 
         # Valores da aba visível, para detectar edição no Excel.
-        visiveis: dict[str, int] = {}
-        if "Recibos" in wb.sheetnames:
-            for linha in wb["Recibos"].iter_rows(min_row=2, values_only=True):
-                if linha and len(linha) > 5 and linha[0] and isinstance(linha[5], (int, float)):
-                    visiveis[str(linha[0])] = round(linha[5] * 100)
+        visiveis: dict[str, set[int]] = {}
+        if aba_visivel in wb.sheetnames:
+            for linha in wb[aba_visivel].iter_rows(min_row=2, values_only=True):
+                if (linha and len(linha) > coluna_valor and linha[0]
+                        and isinstance(linha[coluna_valor], (int, float))):
+                    visiveis.setdefault(str(linha[0]), set()).add(round(linha[coluna_valor] * 100))
     finally:
         wb.close()
 
@@ -337,8 +365,7 @@ def ler_arquivo(con: sqlite3.Connection, caminho: Path | str) -> PreviaImportaca
 
     # Abas visíveis alteradas?
     for item in dados["recibos"]:
-        valor_visivel = visiveis.get(item["ref"])
-        if valor_visivel is None or valor_visivel != item["valor_centavos"]:
+        if visiveis.get(item["ref"]) != {item["valor_centavos"]}:
             raise ValueError(
                 f"A planilha foi alterada no Excel (recibo {item['ref']}). "
                 "Os valores visíveis não batem com os registrados. Peça um novo arquivo ao supervisor.")

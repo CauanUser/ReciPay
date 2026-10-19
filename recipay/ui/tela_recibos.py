@@ -393,7 +393,11 @@ class DialogoEditarRecibo(QDialog):
         self.accept()
 
 
-ACOES_HISTORICO = {"CRIADO": "Cadastrado", "ALTERADO": "Alterado", "CANCELADO": "Cancelado"}
+ACOES_HISTORICO = {
+    "CRIADO": "Cadastrado", "ALTERADO": "Alterado", "CANCELADO": "Cancelado",
+    "EXPORTADO": "Enviado ao gestor", "REENVIADO": "Reenviado ao gestor",
+    "IMPORTADO": "Importado", "PAGAMENTO": "Pagamento", "PAGAMENTO_ESTORNADO": "Pagamento estornado",
+}
 NOMES_CAMPOS = {"colaborador_id": "Colaborador", "equipe": "Equipe", "valor_centavos": "Valor",
                 "descricao": "Descrição", "data_despesa": "Data"}
 
@@ -436,6 +440,13 @@ class DialogoHistorico(QDialog):
             if h["acao"] == "ALTERADO":
                 partes = [_descrever_mudanca(con, campo, v) for campo, v in detalhes.items()]
                 texto = "; ".join(partes)
+            elif h["acao"] == "PAGAMENTO":
+                texto = (f"Pix abateu {dinheiro.formatar(detalhes.get('valor_centavos', 0))}; "
+                         f"situação: {STATUS.get(detalhes.get('situacao'), '')}")
+            elif h["acao"] == "PAGAMENTO_ESTORNADO":
+                texto = f"Motivo: {detalhes.get('motivo', '')}"
+            elif h["acao"] in ("EXPORTADO", "REENVIADO", "IMPORTADO"):
+                texto = f"Arquivo: {detalhes.get('arquivo', '')}"
             elif h["acao"] == "CANCELADO":
                 texto = f"Motivo: {detalhes.get('motivo', '')}"
             else:

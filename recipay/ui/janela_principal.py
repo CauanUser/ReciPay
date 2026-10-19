@@ -20,6 +20,7 @@ from recipay.auth import Usuario
 from recipay.ui.tela_colaboradores import TelaColaboradores
 from recipay.ui.tela_pagamento import TelaPagamentosConcluidos, TelaRealizarPagamento
 from recipay.ui.tela_recibos import TelaCadastrarRecibos, TelaRecibos
+from recipay.ui.tela_retorno import TelaRetornoHistorico
 from recipay.ui.tela_troca import TelaExportarRecibos, TelaImportarArquivo, TelaPagamentosPendentes
 
 # Telas já construídas. As demais aparecem como "em construção".
@@ -32,6 +33,7 @@ TELAS_PRONTAS = {
     "Pagamentos pendentes": TelaPagamentosPendentes,
     "Realizar pagamento": TelaRealizarPagamento,
     "Pagamentos concluídos": TelaPagamentosConcluidos,
+    "Retorno e histórico": TelaRetornoHistorico,
 }
 
 # Telas de cada perfil (seção 6 da especificação).

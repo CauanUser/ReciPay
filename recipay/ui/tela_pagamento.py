@@ -519,8 +519,8 @@ class TelaPagamentosConcluidos(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(32, 24, 32, 24)
         layout.addWidget(_rotulo("Pagamentos concluídos", "titulo"))
-        layout.addWidget(_rotulo("Pix registrados. A planilha de retorno para os supervisores vem na "
-                                 "próxima etapa.", "subtitulo"))
+        layout.addWidget(_rotulo("Pix registrados. Use Exportar retorno para enviar os pagamentos a cada "
+                                 "supervisor.", "subtitulo"))
 
         filtros = QHBoxLayout()
         self.busca = QLineEdit()
@@ -539,6 +539,9 @@ class TelaPagamentosConcluidos(QWidget):
             b.setObjectName("secundario")
             acoes.addWidget(b)
         acoes.addStretch()
+        self.bt_retorno = QPushButton("Exportar retorno para supervisor…")
+        self.bt_retorno.clicked.connect(self._exportar_retorno)
+        acoes.addWidget(self.bt_retorno)
         layout.addLayout(acoes)
 
         self.tabela = QTableWidget(0, 6)
@@ -591,6 +594,11 @@ class TelaPagamentosConcluidos(QWidget):
         t = self._selecionado()
         if t:
             abrir_arquivo(comprovantes.caminho_absoluto(t.comprovante_arquivo), self)
+
+    def _exportar_retorno(self) -> None:
+        from recipay.ui.tela_retorno import DialogoExportarRetorno  # evita import circular
+        DialogoExportarRetorno(self.con, self.usuario).exec()
+        self.atualizar()
 
     def _estornar(self) -> None:
         t = self._selecionado()
