@@ -1,0 +1,22 @@
+# Ambiente virtual do Python
+.venv/
+venv/
+
+# Arquivos gerados pelo Python
+__pycache__/
+*.py[cod]
+
+# Build do executável (PyInstaller)
+build/
+dist/
+
+# Dados locais e arquivos de teste (nunca enviar dados reais ao GitHub)
+*.db
+*.sqlite3
+*.recipay-backup
+
+# Editores e sistema
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini

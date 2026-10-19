@@ -1,0 +1,6 @@
+# Padroniza as quebras de linha no repositório (evita os avisos LF/CRLF)
+* text=auto
+*.png binary
+*.jpg binary
+*.ico binary
+*.pdf binary

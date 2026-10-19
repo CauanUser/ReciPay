@@ -1,0 +1,2 @@
+# Dependências do Recipay (todas gratuitas)
+PySide6>=6.10

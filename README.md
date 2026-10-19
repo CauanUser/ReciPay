@@ -24,6 +24,20 @@ Programa para PC (Windows) para organizar recibos de despesas e controlar pagame
 - Roda como `.exe` portátil, sem instalação (Python + PySide6).
 - Histórico preservado e nenhum pagamento contado duas vezes.
 
+## Como rodar (desenvolvimento)
+
+No PowerShell, dentro da pasta do projeto:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m recipay
+```
+
+Testes: `.\.venv\Scripts\python.exe -m unittest -v`
+
+Os dados ficam em `%LOCALAPPDATA%\Recipay`. Para testar sem mexer nos dados reais, defina `$env:RECIPAY_DADOS = "C:\caminho\de\teste"` antes de rodar.
+
 ## Situação
 
 Em planejamento. A especificação está em [`docs/ESPECIFICACAO.md`](docs/ESPECIFICACAO.md).
