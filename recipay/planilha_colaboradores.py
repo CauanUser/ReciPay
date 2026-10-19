@@ -10,7 +10,7 @@ from openpyxl.styles import Font, PatternFill
 
 from recipay import colaboradores
 from recipay.auth import Usuario
-from recipay.pix import TIPOS_CHAVE, detectar_tipo, normalizar_tipo
+from recipay.pix import TIPOS_CHAVE, detectar_tipo, formatar_chave, normalizar_tipo
 
 COLUNAS = ["nome", "equipe", "chave_pix", "tipo_chave", "titular_pix"]
 OBRIGATORIAS = ["nome", "equipe", "chave_pix"]
@@ -134,6 +134,32 @@ def gravar(con: sqlite3.Connection, usuario: Usuario, previa: list[LinhaPrevia])
             colaboradores.criar(con, usuario, linha.dados, origem="PLANILHA")
             total += 1
     return total
+
+
+def _estilizar_cabecalho(ws, larguras: tuple[int, ...]) -> None:
+    azul = PatternFill("solid", fgColor="1E5AA8")
+    for celula in ws[1]:
+        celula.font = Font(bold=True, color="FFFFFF")
+        celula.fill = azul
+    for indice, largura in enumerate(larguras):
+        ws.column_dimensions[chr(ord("A") + indice)].width = largura
+    ws.freeze_panes = "A2"
+
+
+def exportar(caminho: Path | str, lista: list[colaboradores.Colaborador]) -> None:
+    """Exporta colaboradores no mesmo formato da importação (pode ser reimportada)."""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Colaboradores"
+    ws.append(COLUNAS + ["situacao"])
+    for c in lista:
+        ws.append([c.nome, c.equipe, formatar_chave(c.tipo_chave, c.chave_pix),
+                   TIPOS_CHAVE[c.tipo_chave], c.titular_pix, "Ativo" if c.ativo else "Inativo"])
+    for linha in range(2, ws.max_row + 1):
+        ws.cell(row=linha, column=3).number_format = "@"
+    _estilizar_cabecalho(ws, (32, 18, 38, 16, 32, 12))
+    ws.auto_filter.ref = ws.dimensions
+    wb.save(caminho)
 
 
 def salvar_modelo(caminho: Path | str) -> None:

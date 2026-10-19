@@ -1,6 +1,7 @@
 """Tela de Colaboradores: lista, cadastro, edição, desativação e importação de planilha."""
 
 import sqlite3
+from datetime import date
 from pathlib import Path
 
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt
@@ -273,13 +274,20 @@ class TelaColaboradores(QWidget):
         self.bt_importar.setObjectName("secundario")
         self.bt_modelo = QPushButton("Baixar modelo de planilha")
         self.bt_modelo.setObjectName("secundario")
-        for b in (self.bt_novo, self.bt_editar, self.bt_ativo):
-            acoes.addWidget(b)
-        acoes.addStretch()
-        acoes.addWidget(self.bt_modelo)
-        acoes.addWidget(self.bt_importar)
+        self.bt_exportar = QPushButton("Exportar lista (Excel)")
+        self.bt_exportar.setObjectName("secundario")
+        self.bt_exportar.setToolTip("Gera uma planilha com os colaboradores mostrados na lista.")
         if self.pode_editar:
-            layout.addLayout(acoes)
+            for b in (self.bt_novo, self.bt_editar, self.bt_ativo):
+                acoes.addWidget(b)
+            acoes.addStretch()
+            acoes.addWidget(self.bt_modelo)
+            acoes.addWidget(self.bt_importar)
+            acoes.addWidget(self.bt_exportar)
+        else:
+            acoes.addStretch()
+            acoes.addWidget(self.bt_exportar)
+        layout.addLayout(acoes)
 
         # Tabela
         self.modelo = ModeloColaboradores()
@@ -303,6 +311,7 @@ class TelaColaboradores(QWidget):
         self.filtro_equipe.currentIndexChanged.connect(self.atualizar)
         self.inativos.toggled.connect(self.atualizar)
         self.tabela.selectionModel().selectionChanged.connect(self._ajustar_botoes)
+        self.bt_exportar.clicked.connect(self._exportar)
         if self.pode_editar:
             self.tabela.doubleClicked.connect(self._editar)
             self.bt_novo.clicked.connect(self._novo)
@@ -394,6 +403,29 @@ class TelaColaboradores(QWidget):
         QMessageBox.information(self, "Importação concluída", f"{total} colaborador(es) importado(s).")
         self._recarregar_equipes()
         self.atualizar()
+
+    def _exportar(self) -> None:
+        itens = self.modelo.itens
+        if not itens:
+            QMessageBox.information(self, "Lista vazia", "Não há colaboradores na lista para exportar.")
+            return
+        nome = f"colaboradores_{date.today().isoformat()}.xlsx"
+        caminho, _ = QFileDialog.getSaveFileName(
+            self, "Exportar colaboradores", str(Path.home() / "Documents" / nome),
+            "Planilhas do Excel (*.xlsx)",
+        )
+        if not caminho:
+            return
+        try:
+            planilha_colaboradores.exportar(caminho, itens)
+        except OSError as e:
+            QMessageBox.warning(self, "Não foi possível salvar", f"{e}\nO arquivo está aberto no Excel?")
+            return
+        filtro = ""
+        if self.busca.text().strip() or self.filtro_equipe.currentIndex() > 0:
+            filtro = "\n(Somente os que aparecem com o filtro atual.)"
+        QMessageBox.information(
+            self, "Lista exportada", f"{len(itens)} colaborador(es) exportado(s) em:\n{caminho}{filtro}")
 
     def _baixar_modelo(self) -> None:
         caminho, _ = QFileDialog.getSaveFileName(

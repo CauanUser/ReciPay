@@ -148,6 +148,26 @@ class TestPlanilha(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "chave_pix"):
             planilha_colaboradores.ler(self.con, caminho)
 
+    def test_exportar_e_reimportar(self):
+        dados = [("Maria Souza", "Norte", "EMAIL", "maria@x.com"),
+                 ("Pedro Lima", "Sul", "CPF", "01234567890"),
+                 ("Ana Costa", "Sul", "TELEFONE", "11999998888")]
+        for nome, equipe, tipo, chave in dados:
+            colaboradores.criar(self.con, self.sup, {"nome": nome, "equipe": equipe,
+                                "tipo_chave": tipo, "chave_pix": chave, "titular_pix": nome})
+        caminho = Path(self.pasta.name) / "exportada.xlsx"
+        planilha_colaboradores.exportar(caminho, colaboradores.listar(self.con))
+
+        # Outro PC (banco vazio) importa a lista exportada: tudo igual.
+        con2 = db.conectar(":memory:")
+        self.addCleanup(con2.close)
+        sup2 = criar_usuario_local(con2, "Outro", "SUPERVISOR", "123456")
+        previa = planilha_colaboradores.ler(con2, caminho)
+        self.assertTrue(all(l.valida for l in previa), [l.erros for l in previa])
+        planilha_colaboradores.gravar(con2, sup2, previa)
+        chaves = lambda con: sorted((c.nome, c.tipo_chave, c.chave_pix) for c in colaboradores.listar(con))
+        self.assertEqual(chaves(con2), chaves(self.con))
+
     def test_modelo_pode_ser_importado(self):
         caminho = Path(self.pasta.name) / "modelo.xlsx"
         planilha_colaboradores.salvar_modelo(caminho)
