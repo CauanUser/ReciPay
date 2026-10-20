@@ -1,0 +1,25 @@
+RECIPAY - Controle de recibos e pagamentos Pix
+==============================================
+
+COMO ABRIR
+1. Extraia o ZIP inteiro (botao direito no arquivo > "Extrair tudo...").
+   Nao abra o programa de dentro do ZIP.
+2. Abra a pasta "Recipay" e de dois cliques em "Abrir Recipay.bat".
+3. Na primeira vez, uma janela preta prepara o programa (2 a 5 minutos,
+   precisa de internet). Depois, o Recipay abre direto.
+4. Na tela de entrada, clique em "+ Cadastrar novo usuario".
+
+PRECISA TER
+- Windows 10 ou 11.
+- Python 3.10 ou mais novo. Se nao tiver, a janela preta explica como
+  instalar (python.org > Downloads > marcar "Add python.exe to PATH").
+
+DICAS
+- Para criar um atalho: botao direito em "Abrir Recipay.bat" >
+  "Enviar para" > "Area de trabalho (criar atalho)".
+- Os dados ficam em %LOCALAPPDATA%\Recipay (nao na pasta do programa).
+  Faca backup pelo menu Backup.
+- Esqueceu a senha? Na tela de entrada, "Esqueci minha senha":
+  o codigo e Cosampa@ seguido da sua matricula.
+- Se o programa nao abrir, rode "Abrir Recipay.bat" /debug pelo
+  PowerShell e envie a mensagem de erro para quem te passou o Recipay.
