@@ -1,6 +1,7 @@
 """Locais de armazenamento do Recipay."""
 
 import os
+import sys
 from pathlib import Path
 
 
@@ -39,3 +40,9 @@ def limpar_temporarios() -> None:
                 arquivo.unlink()
             except OSError:
                 pass
+
+
+def caminho_recurso(nome: str) -> Path:
+    """Arquivos que acompanham o programa (ícone). Funciona no .exe e no código-fonte."""
+    base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.parent))
+    return base / "assets" / nome

@@ -45,6 +45,7 @@ class DialogoConfiguracao(QDialog):
         super().__init__()
         self.con = con
         self.usuario: Usuario | None = None
+        self.restaurado = False
         self.setWindowTitle("Recipay — Configuração inicial")
         self.setMinimumWidth(420)
 
@@ -81,6 +82,17 @@ class DialogoConfiguracao(QDialog):
         botao.clicked.connect(self._salvar)
         self.confirmar.returnPressed.connect(self._salvar)
         layout.addWidget(botao)
+
+        restaurar = QPushButton("Trocou de computador? Restaurar de um backup…")
+        restaurar.setObjectName("secundario")
+        restaurar.clicked.connect(self._restaurar)
+        layout.addWidget(restaurar)
+
+    def _restaurar(self) -> None:
+        from recipay.ui.tela_backup import escolher_e_restaurar  # evita import circular
+        if escolher_e_restaurar(self, self.con):
+            self.restaurado = True
+            self.reject()
 
     def _salvar(self) -> None:
         if self.senha.text() != self.confirmar.text():

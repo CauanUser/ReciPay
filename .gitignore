@@ -1,5 +1,6 @@
 # Ambiente virtual do Python
 .venv/
+.venv-build/
 venv/
 
 # Arquivos gerados pelo Python
@@ -9,6 +10,7 @@ __pycache__/
 # Build do executável (PyInstaller)
 build/
 dist/
+*.spec
 
 # Dados locais e arquivos de teste (nunca enviar dados reais ao GitHub)
 *.db

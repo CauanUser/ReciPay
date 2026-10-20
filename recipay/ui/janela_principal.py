@@ -17,7 +17,9 @@ from PySide6.QtWidgets import (
 
 from recipay import __version__
 from recipay.auth import Usuario
+from recipay.ui.tela_backup import TelaBackup
 from recipay.ui.tela_colaboradores import TelaColaboradores
+from recipay.ui.tela_inicio import TelaInicio
 from recipay.ui.tela_pagamento import TelaPagamentosConcluidos, TelaRealizarPagamento
 from recipay.ui.tela_recibos import TelaCadastrarRecibos, TelaRecibos
 from recipay.ui.tela_retorno import TelaRetornoHistorico
@@ -25,6 +27,8 @@ from recipay.ui.tela_troca import TelaExportarRecibos, TelaImportarArquivo, Tela
 
 # Telas já construídas. As demais aparecem como "em construção".
 TELAS_PRONTAS = {
+    "Início": TelaInicio,
+    "Backup": TelaBackup,
     "Colaboradores": TelaColaboradores,
     "Recibos": TelaRecibos,
     "Cadastrar recibos": TelaCadastrarRecibos,
@@ -45,6 +49,7 @@ TELAS = {
         "Colaboradores",
         "Exportar recibos",
         "Retorno e histórico",
+        "Backup",
     ],
     "GESTOR": [
         "Início",
@@ -53,6 +58,7 @@ TELAS = {
         "Realizar pagamento",
         "Pagamentos concluídos",
         "Colaboradores",
+        "Backup",
     ],
 }
 
@@ -127,8 +133,16 @@ class JanelaPrincipal(QMainWindow):
         titulos = TELAS[self.usuario.perfil]
         return (titulos.index(titulo), self.telas.widget(titulos.index(titulo))) if titulo in titulos else (-1, None)
 
+    def ir_para(self, titulo: str) -> None:
+        indice, _ = self._tela(titulo)
+        if indice >= 0:
+            self.menu.setCurrentRow(indice)
+
     def _ligar_telas(self) -> None:
-        """Atalho: da fila de pendentes direto para o pagamento do colaborador."""
+        """Atalhos entre telas (Início e fila de pendentes → pagamento)."""
+        _, inicio = self._tela("Início")
+        if inicio is not None:
+            inicio.ir_para = self.ir_para
         _, pendentes = self._tela("Pagamentos pendentes")
         indice, pagamento = self._tela("Realizar pagamento")
         if pendentes and pagamento:

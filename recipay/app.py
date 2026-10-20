@@ -3,6 +3,7 @@
 import sys
 
 from PySide6.QtCore import QTimer
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication, QDialog
 
 from recipay import config, db
@@ -17,6 +18,9 @@ def main() -> int:
     app.setApplicationName("Recipay")
     app.setStyle("Fusion")
     app.setStyleSheet(ESTILO)
+    icone = config.caminho_recurso("recipay.png")
+    if icone.is_file():
+        app.setWindowIcon(QIcon(str(icone)))
     # O programa só fecha quando o usuário fecha a janela principal ou cancela o login.
     app.setQuitOnLastWindowClosed(False)
 
@@ -27,7 +31,7 @@ def main() -> int:
     if usuario is None:
         configuracao = DialogoConfiguracao(con)
         if configuracao.exec() != QDialog.DialogCode.Accepted:
-            return 0
+            return 0  # cancelou ou restaurou um backup (o programa pede para abrir de novo)
         usuario = configuracao.usuario
 
     estado: dict[str, JanelaPrincipal | None] = {"janela": None}

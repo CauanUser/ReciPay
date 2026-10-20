@@ -38,6 +38,12 @@ Testes: `.\.venv\Scripts\python.exe -m unittest -v`
 
 Os dados ficam em `%LOCALAPPDATA%\Recipay`. Para testar sem mexer nos dados reais, defina `$env:RECIPAY_DADOS = "C:\caminho\de\teste"` antes de rodar.
 
+## Gerar o programa para os usuários (Recipay.exe)
+
+No Windows, dentro da pasta do projeto, dê dois cliques em `gerar_exe.bat` (ou rode `.\gerar_exe.bat` no PowerShell).
+O programa fica em `dist\Recipay\Recipay.exe`. Para instalar em outro PC, copie a pasta `dist\Recipay` inteira
+(por exemplo, compactada em .zip) e crie um atalho para o `Recipay.exe`. Não precisa instalar Python.
+
 ## Situação
 
-Em planejamento. A especificação está em [`docs/ESPECIFICACAO.md`](docs/ESPECIFICACAO.md).
+Versão 0.9 (beta): ciclo completo pronto — colaboradores, recibos, troca de planilhas, pagamentos com QR Code Pix, retorno, início e backup. Especificação em [`docs/ESPECIFICACAO.md`](docs/ESPECIFICACAO.md).
