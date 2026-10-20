@@ -133,8 +133,9 @@ class TestRecibos(BaseComPasta):
         self.con.execute("UPDATE recibo SET status = 'ENVIADO' WHERE id = ?", (r.id,))
         with self.assertRaisesRegex(ValueError, "exportado"):
             recibos.atualizar(self.con, self.sup, r.id, self.dados())
-        with self.assertRaises(ValueError):
-            recibos.cancelar(self.con, self.sup, r.id, "erro")
+        # Já enviado: não edita direto, mas pode cancelar (o gestor é avisado na próxima planilha).
+        recibos.cancelar(self.con, self.sup, r.id, "Enviado por engano")
+        self.assertEqual(recibos.buscar(self.con, r.id).status, "CANCELADO")
 
     def test_cancelar_exige_motivo(self):
         r = recibos.criar(self.con, self.sup, self.dados(), self.foto())

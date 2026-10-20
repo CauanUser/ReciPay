@@ -75,6 +75,7 @@ class ResultadoExportacao:
     quantidade: int
     total_centavos: int
     tamanho_bytes: int
+    cancelamentos: int = 0
 
     @property
     def grande_demais(self) -> bool:
@@ -91,7 +92,8 @@ def exportar_recibos(
     """
     if usuario.perfil != "SUPERVISOR":
         raise PermissionError("Somente o supervisor exporta recibos.")
-    if not recibo_ids:
+    cancelados = recibos.cancelamentos_a_avisar(con, usuario.id)
+    if not recibo_ids and not cancelados:
         raise ValueError("Selecione pelo menos um recibo.")
 
     lista = []
@@ -144,6 +146,9 @@ def exportar_recibos(
         "total_centavos": total,
         "colaboradores": list(colabs.values()),
         "recibos": itens,
+        "cancelamentos": [{"id": r.id, "ref": _ref(r.id), "motivo": r.cancelamento_motivo or "",
+                           "colaborador": r.colaborador_nome, "valor_centavos": r.valor_centavos}
+                          for r in cancelados],
     }
     texto_dados = json.dumps(dados, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     hash_dados = _sha256(texto_dados.encode("utf-8"))
@@ -166,7 +171,11 @@ def exportar_recibos(
                                 "REENVIADO" if r.status == "ENVIADO" else "EXPORTADO",
                                 {"lote_id": lote_id, "arquivo": caminho.name},
                                 usuario.id, usuario.perfil)
-    return ResultadoExportacao(lote_id, len(lista), total, caminho.stat().st_size)
+        for r in cancelados:
+            con.execute("UPDATE recibo SET cancelamento_enviado_lote = ? WHERE id = ?", (lote_id, r.id))
+            registrar_historico(con, "recibo", r.id, "CANCELAMENTO_AVISADO",
+                                {"lote_id": lote_id, "arquivo": caminho.name}, usuario.id, usuario.perfil)
+    return ResultadoExportacao(lote_id, len(lista), total, caminho.stat().st_size, len(cancelados))
 
 
 def _escrever_dados_ocultos(wb: Workbook, texto_dados: str, hash_dados: str,
@@ -235,6 +244,14 @@ def _montar_planilha(lista, colabs, dados, texto_dados, hash_dados, arquivos_com
     ws.append([f"Enviado por {dados['gerado_por']['nome']} em "
                f"{date.fromisoformat(dados['gerado_em'][:10]).strftime('%d/%m/%Y')}. Importe esta planilha no Recipay; não altere os valores."])
 
+    # ---- Cancelamentos (legível)
+    if dados.get("cancelamentos"):
+        wx = wb.create_sheet("Cancelamentos")
+        _cabecalho(wx, ["Ref", "Colaborador", "Valor (R$)", "Motivo"], [12, 30, 14, 50])
+        for c in dados["cancelamentos"]:
+            wx.append([c["ref"], c["colaborador"], c["valor_centavos"] / 100, c["motivo"]])
+            wx.cell(row=wx.max_row, column=3).number_format = '"R$" #,##0.00'
+
     # ---- Colaboradores (legível)
     wc = wb.create_sheet("Colaboradores")
     _cabecalho(wc, ["Nome", "Equipe", "Tipo da chave", "Chave Pix", "Titular"], [30, 16, 16, 36, 30])
@@ -284,6 +301,23 @@ class ChaveAlterada:
 
 
 @dataclass
+class CancelamentoPrevia:
+    id: str
+    ref: str
+    colaborador: str
+    valor_centavos: int
+    motivo: str
+    acao: str  # CANCELAR | JA_PAGO | JA_CANCELADO | DESCONHECIDO
+
+    @property
+    def descricao_acao(self) -> str:
+        return {"CANCELAR": "Será retirado da fila de pagamentos",
+                "JA_PAGO": "Já tem pagamento: combine com o supervisor",
+                "JA_CANCELADO": "Já estava cancelado",
+                "DESCONHECIDO": "Recibo não está neste computador (ignorado)"}[self.acao]
+
+
+@dataclass
 class PreviaImportacao:
     arquivo_nome: str
     hash_arquivo: str
@@ -294,6 +328,11 @@ class PreviaImportacao:
     chaves_alteradas: list[ChaveAlterada]
     lote_ja_importado_em: str | None = None
     avisos: list[str] = field(default_factory=list)
+    cancelamentos: list[CancelamentoPrevia] = field(default_factory=list)
+
+    @property
+    def cancelamentos_aplicaveis(self) -> list[CancelamentoPrevia]:
+        return [c for c in self.cancelamentos if c.acao == "CANCELAR"]
 
     @property
     def supervisor_nome(self) -> str:
@@ -397,8 +436,23 @@ def ler_arquivo(con: sqlite3.Connection, caminho: Path | str) -> PreviaImportaca
     hash_arquivo = comprovantes.hash_arquivo(caminho)
     previa = PreviaImportacao(caminho.name, hash_arquivo, dados, comps, itens, novos_colabs,
                               alteradas, lote["importado_em"] if lote else None)
-    if not previa.novos:
-        previa.avisos.append("Todos os recibos desta planilha já foram importados antes.")
+    for c in dados.get("cancelamentos", []):
+        atual = con.execute("SELECT status FROM recibo WHERE id = ?", (c["id"],)).fetchone()
+        if not atual:
+            acao = "DESCONHECIDO"
+        elif atual["status"] == "PENDENTE":
+            acao = "CANCELAR"
+        elif atual["status"] == "CANCELADO":
+            acao = "JA_CANCELADO"
+        else:
+            acao = "JA_PAGO"
+        previa.cancelamentos.append(CancelamentoPrevia(
+            c["id"], c["ref"], c["colaborador"], c["valor_centavos"], c["motivo"], acao))
+    if any(c.acao == "JA_PAGO" for c in previa.cancelamentos):
+        previa.avisos.append("O supervisor cancelou recibo(s) que você já pagou (total ou parcial). "
+                             "Combine com ele: se for o caso, estorne o pagamento.")
+    if not previa.novos and not previa.cancelamentos_aplicaveis:
+        previa.avisos.append("Nada novo nesta planilha: tudo já foi importado antes.")
     return previa
 
 
@@ -408,6 +462,7 @@ class ResultadoImportacao:
     novos: int
     ignorados: int
     total_centavos: int
+    cancelados: int = 0
 
 
 def importar(
@@ -497,6 +552,16 @@ def importar(
                                 {"lote_id": d["lote_id"], "arquivo": previa.arquivo_nome},
                                 usuario.id, usuario.perfil)
 
+        for c in previa.cancelamentos_aplicaveis:
+            # Confere de novo dentro da transação: só cancela se continuar sem pagamento.
+            ainda = con.execute("SELECT status FROM recibo WHERE id = ?", (c.id,)).fetchone()
+            if ainda and ainda["status"] == "PENDENTE":
+                con.execute("UPDATE recibo SET status = 'CANCELADO', cancelamento_motivo = ? WHERE id = ?",
+                            (f"Cancelado pelo supervisor: {c.motivo}", c.id))
+                registrar_historico(con, "recibo", c.id, "CANCELADO",
+                                    {"motivo": c.motivo, "origem": previa.arquivo_nome},
+                                    usuario.id, usuario.perfil)
+
         con.execute(
             "INSERT INTO importacao (id, lote_id, arquivo_nome, hash_arquivo, importado_por,"
             " importado_em, novos, ignorados) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
@@ -504,7 +569,7 @@ def importar(
              momento, len(previa.novos), len(previa.itens) - len(previa.novos)))
 
     return ResultadoImportacao(len(previa.novos), len(previa.itens) - len(previa.novos),
-                               previa.total_novos_centavos)
+                               previa.total_novos_centavos, len(previa.cancelamentos_aplicaveis))
 
 
 def historico_importacoes(con: sqlite3.Connection) -> list[sqlite3.Row]:

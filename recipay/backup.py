@@ -106,7 +106,7 @@ def conferir(caminho: Path | str, senha: str) -> dict:
         z.extract("recipay.db", tmp)
         c = sqlite3.connect(Path(tmp) / "recipay.db")
         try:
-            u = c.execute("SELECT nome, perfil FROM usuario WHERE local = 1").fetchone()
+            u = c.execute("SELECT nome, perfil, id FROM usuario WHERE local = 1").fetchone()
             recibos = c.execute("SELECT COUNT(*) FROM recibo").fetchone()[0]
             colabs = c.execute("SELECT COUNT(*) FROM colaborador").fetchone()[0]
         except sqlite3.DatabaseError as e:
@@ -115,7 +115,7 @@ def conferir(caminho: Path | str, senha: str) -> dict:
             c.close()
         if not u:
             raise ValueError("Backup sem usuário configurado.")
-        return {"nome": u[0], "perfil": u[1], "recibos": recibos, "colaboradores": colabs,
+        return {"nome": u[0], "perfil": u[1], "id": u[2], "recibos": recibos, "colaboradores": colabs,
                 "comprovantes": sum(1 for n in z.namelist() if n.startswith("comprovantes/"))}
 
 

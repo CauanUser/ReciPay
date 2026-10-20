@@ -84,7 +84,8 @@ class TelaExportarRecibos(QWidget):
         layout.addWidget(_rotulo("Exportar recibos", "titulo"))
         layout.addWidget(_rotulo(
             "Marque os recibos e gere a planilha para enviar ao gestor (e-mail, Teams, WhatsApp Web…). "
-            "Depois de exportados, os recibos não podem mais ser editados.", "subtitulo"))
+            "Depois de enviado, um recibo só muda pela tela Recibos (Corrigir ou Cancelar), "
+            "e o gestor é avisado na próxima planilha.", "subtitulo"))
 
         opcoes = QHBoxLayout()
         self.todos = QCheckBox("Marcar todos")
@@ -95,9 +96,16 @@ class TelaExportarRecibos(QWidget):
         opcoes.addStretch()
         layout.addLayout(opcoes)
 
+        self.aviso_cancel = _rotulo("")
+        self.aviso_cancel.setStyleSheet(f"background: {tema.AZUL_CLARO}; padding: 8px; border-radius: 6px;")
+        layout.addWidget(self.aviso_cancel)
+
         self.tabela = _tabela(self.COLUNAS)
         self.tabela.setColumnWidth(0, 36)
         layout.addWidget(self.tabela, 1)
+        self.vazio = _rotulo("Nenhum rascunho para enviar. Cadastre recibos em <b>Cadastrar recibos</b>.",
+                             "subtitulo")
+        layout.addWidget(self.vazio)
 
         rodape = QHBoxLayout()
         self.resumo = _rotulo("", "subtitulo")
@@ -107,6 +115,7 @@ class TelaExportarRecibos(QWidget):
         rodape.addWidget(self.bt_exportar)
         layout.addLayout(rodape)
 
+        self.todos.setChecked(True)  # o mais comum é enviar todos os rascunhos
         self.todos.toggled.connect(self._marcar_todos)
         self.reenviar.toggled.connect(self.atualizar)
         self.tabela.itemChanged.connect(self._atualizar_resumo)
@@ -135,6 +144,12 @@ class TelaExportarRecibos(QWidget):
         self.tabela.resizeColumnsToContents()
         self.tabela.setColumnWidth(0, 36)
         self.tabela.blockSignals(False)
+        self.cancelados = recibos.cancelamentos_a_avisar(self.con, self.usuario.id)
+        self.aviso_cancel.setText(
+            f"ⓘ {len(self.cancelados)} cancelamento(s) de recibos já enviados serão avisados ao gestor "
+            "junto com esta planilha." if self.cancelados else "")
+        self.aviso_cancel.setVisible(bool(self.cancelados))
+        self.vazio.setVisible(not self.itens)
         self._atualizar_resumo()
 
     def _marcar_todos(self, marcado: bool) -> None:
@@ -156,11 +171,14 @@ class TelaExportarRecibos(QWidget):
         self.resumo.setText(
             f"{len(marcados)} marcado(s) · Total {dinheiro.formatar(total)}   "
             f"({rascunhos} rascunho(s) aguardando envio)")
-        self.bt_exportar.setEnabled(bool(marcados))
+        cancel = len(getattr(self, "cancelados", []))
+        self.bt_exportar.setEnabled(bool(marcados) or bool(cancel))
+        self.bt_exportar.setText("Exportar planilha…" if marcados or not cancel
+                                 else "Enviar só os cancelamentos…")
 
     def _exportar(self) -> None:
         marcados = self._marcados()
-        if not marcados:
+        if not marcados and not self.cancelados:
             return
         reenvios = sum(1 for r in marcados if r.status == "ENVIADO")
         if reenvios:
@@ -187,7 +205,9 @@ class TelaExportarRecibos(QWidget):
         caixa = QMessageBox(self)
         caixa.setWindowTitle("Planilha gerada")
         caixa.setText(
-            f"✓ {res.quantidade} recibo(s) exportado(s), total {dinheiro.formatar(res.total_centavos)}.\n\n"
+            f"✓ {res.quantidade} recibo(s) exportado(s), total {dinheiro.formatar(res.total_centavos)}."
+            + (f"\n{res.cancelamentos} aviso(s) de cancelamento incluído(s)." if res.cancelamentos else "")
+            + "\n\n"
             f"Arquivo: {caminho}\nTamanho: {tamanho:.1f} MB\n\n"
             f"Agora envie este arquivo ao gestor.{aviso}")
         abrir = caixa.addButton("Abrir pasta", QMessageBox.ButtonRole.ActionRole)
@@ -195,7 +215,6 @@ class TelaExportarRecibos(QWidget):
         caixa.exec()
         if caixa.clickedButton() == abrir:
             _abrir_pasta(Path(caminho))
-        self.todos.setChecked(False)
         self.atualizar()
 
 
@@ -231,6 +250,9 @@ class TelaImportarArquivo(QWidget):
         p.addWidget(self.avisos)
         self.tabela = _tabela(["Ref", "Data", "Colaborador", "Equipe", "Descrição", "Valor", "Situação"])
         p.addWidget(self.tabela, 1)
+        self.cancelamentos = _rotulo("")
+        self.cancelamentos.setStyleSheet("background: #FDECEA; padding: 8px; border-radius: 6px;")
+        p.addWidget(self.cancelamentos)
         self.area_chaves = QVBoxLayout()
         p.addLayout(self.area_chaves)
         botoes = QHBoxLayout()
@@ -330,8 +352,19 @@ class TelaImportarArquivo(QWidget):
             self.combos_chave[alt.colaborador_id] = combo
             self.area_chaves.addWidget(linha)
 
-        self.bt_confirmar.setText(f"Importar {len(pv.novos)} recibo(s)" if pv.novos else "Nada novo para importar")
-        self.bt_confirmar.setEnabled(bool(pv.novos) or bool(pv.chaves_alteradas))
+        if pv.cancelamentos:
+            linhas = "".join(
+                f"<br>• {c.ref} · {c.colaborador} · {dinheiro.formatar(c.valor_centavos)} — {c.motivo} "
+                f"<i>({c.descricao_acao})</i>" for c in pv.cancelamentos)
+            self.cancelamentos.setText(f"<b>Cancelamentos enviados pelo supervisor:</b>{linhas}")
+        self.cancelamentos.setVisible(bool(pv.cancelamentos))
+        partes = []
+        if pv.novos:
+            partes.append(f"importar {len(pv.novos)} recibo(s)")
+        if pv.cancelamentos_aplicaveis:
+            partes.append(f"cancelar {len(pv.cancelamentos_aplicaveis)}")
+        self.bt_confirmar.setText(("Confirmar: " + " e ".join(partes)) if partes else "Nada novo para importar")
+        self.bt_confirmar.setEnabled(bool(partes) or bool(pv.chaves_alteradas))
         self.painel.setVisible(True)
 
     def _confirmar(self) -> None:
@@ -347,6 +380,7 @@ class TelaImportarArquivo(QWidget):
             self, "Importação concluída",
             f"✓ {res.novos} recibo(s) na fila de pagamentos, total {dinheiro.formatar(res.total_centavos)}."
             + (f"\n{res.ignorados} já existiam e foram ignorados." if res.ignorados else "")
+            + (f"\n{res.cancelados} recibo(s) cancelado(s) a pedido do supervisor." if res.cancelados else "")
             + "\n\nVeja em Pagamentos pendentes.")
         self._limpar()
 

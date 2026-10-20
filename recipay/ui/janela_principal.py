@@ -140,9 +140,10 @@ class JanelaPrincipal(QMainWindow):
 
     def _ligar_telas(self) -> None:
         """Atalhos entre telas (Início e fila de pendentes → pagamento)."""
-        _, inicio = self._tela("Início")
-        if inicio is not None:
-            inicio.ir_para = self.ir_para
+        for i in range(self.telas.count()):
+            tela = self.telas.widget(i)
+            if hasattr(tela, "ir_para"):
+                tela.ir_para = self.ir_para
         _, pendentes = self._tela("Pagamentos pendentes")
         indice, pagamento = self._tela("Realizar pagamento")
         if pendentes and pagamento:

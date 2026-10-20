@@ -1,12 +1,19 @@
-"""Locais de armazenamento do Recipay."""
+"""Locais de armazenamento do Recipay.
+
+Cada usuário cadastrado no computador tem a própria pasta (a "conta"), com banco de dados
+e comprovantes separados: <base>\\contas\\<id>\\. Assim, um supervisor e um gestor podem
+usar o mesmo PC sem misturar os dados nem as permissões.
+"""
 
 import os
 import sys
 from pathlib import Path
 
+_conta_ativa: Path | None = None
 
-def pasta_dados() -> Path:
-    """Pasta de dados do usuário do Windows: %LOCALAPPDATA%\\Recipay.
+
+def pasta_base() -> Path:
+    """Pasta do programa no usuário do Windows: %LOCALAPPDATA%\\Recipay.
 
     A variável RECIPAY_DADOS permite usar outra pasta (útil para testes).
     """
@@ -19,6 +26,19 @@ def pasta_dados() -> Path:
         base = Path.home() / ".recipay"
     base.mkdir(parents=True, exist_ok=True)
     return base
+
+
+def definir_conta(pasta: Path | None) -> None:
+    """Escolhe a pasta da conta que está em uso (None = pasta base)."""
+    global _conta_ativa
+    _conta_ativa = Path(pasta) if pasta else None
+    if _conta_ativa:
+        _conta_ativa.mkdir(parents=True, exist_ok=True)
+
+
+def pasta_dados() -> Path:
+    """Pasta dos dados da conta em uso."""
+    return _conta_ativa if _conta_ativa else pasta_base()
 
 
 def caminho_banco() -> Path:

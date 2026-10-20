@@ -5,17 +5,18 @@ import sqlite3
 from datetime import date
 
 from PySide6.QtCore import QAbstractTableModel, QDate, QModelIndex, Qt
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QCheckBox,
     QComboBox,
     QDialog,
     QFormLayout,
     QHBoxLayout,
     QHeaderView,
-    QInputDialog,
     QLabel,
     QLineEdit,
+    QMenu,
     QMessageBox,
     QPushButton,
     QTableView,
@@ -46,9 +47,10 @@ def _data_br(iso: str) -> str:
     return date.fromisoformat(iso).strftime("%d/%m/%Y")
 
 
-def _rotulo(texto: str, nome: str) -> QLabel:
+def _rotulo(texto: str, nome: str = "") -> QLabel:
     r = QLabel(texto)
-    r.setObjectName(nome)
+    if nome:
+        r.setObjectName(nome)
     r.setWordWrap(True)
     return r
 
@@ -361,13 +363,23 @@ class ModeloRecibos(QAbstractTableModel):
 
 
 class DialogoEditarRecibo(QDialog):
+    """Rascunho: edita direto. Já enviado: salva como correção (cancela o original e cria outro)."""
+
     def __init__(self, con: sqlite3.Connection, usuario: Usuario, recibo: Recibo):
         super().__init__()
         self.con, self.usuario, self.recibo = con, usuario, recibo
-        self.setWindowTitle("Editar recibo")
+        self.correcao = recibo.status == "ENVIADO"
+        self.setWindowTitle("Corrigir recibo enviado" if self.correcao else "Editar recibo")
         self.setMinimumWidth(560)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 20, 24, 20)
+        if self.correcao:
+            aviso = _rotulo(
+                "ⓘ Este recibo já foi enviado ao gestor. Ao salvar, o Recipay <b>cancela o original</b> "
+                "e cria um <b>novo rascunho</b> com os dados corrigidos. Na próxima exportação, o gestor "
+                "recebe o recibo corrigido e o aviso de cancelamento do antigo.")
+            aviso.setStyleSheet(f"background: {tema.AZUL_CLARO}; padding: 10px; border-radius: 6px;")
+            layout.addWidget(aviso)
         self.form = FormRecibo(con, recibo)
         layout.addWidget(self.form)
         self.erro = _rotulo("", "erro")
@@ -377,7 +389,8 @@ class DialogoEditarRecibo(QDialog):
         cancelar = QPushButton("Fechar sem salvar")
         cancelar.setObjectName("secundario")
         cancelar.clicked.connect(self.reject)
-        salvar = QPushButton("Salvar alterações")
+        salvar = QPushButton("Salvar correção" if self.correcao else "Salvar alterações")
+        salvar.setDefault(True)
         salvar.clicked.connect(self._salvar)
         botoes.addWidget(cancelar)
         botoes.addWidget(salvar)
@@ -385,18 +398,77 @@ class DialogoEditarRecibo(QDialog):
 
     def _salvar(self) -> None:
         try:
-            recibos.atualizar(self.con, self.usuario, self.recibo.id, self.form.dados(),
-                              self.form.comprovante.caminho)
+            recibos.corrigir(self.con, self.usuario, self.recibo.id, self.form.dados(),
+                             self.form.comprovante.caminho)
         except (ValueError, PermissionError) as e:
             self.erro.setText(str(e))
             return
         self.accept()
 
 
+MOTIVOS_PRONTOS = ["Lançado em duplicidade", "Valor errado", "Colaborador errado",
+                   "Despesa não aprovada", "Outro motivo…"]
+
+
+class DialogoCancelarRecibo(QDialog):
+    def __init__(self, recibo: Recibo, aviso: str):
+        super().__init__()
+        self.setWindowTitle("Cancelar recibo")
+        self.setMinimumWidth(460)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 20, 24, 20)
+        layout.addWidget(_rotulo(
+            f"<b>{recibo.colaborador_nome}</b> · {dinheiro.formatar(recibo.valor_centavos)} · "
+            f"{_data_br(recibo.data_despesa)}<br>{recibo.descricao}"))
+        if aviso:
+            info = _rotulo(f"ⓘ {aviso}")
+            info.setStyleSheet(f"background: {tema.AZUL_CLARO}; padding: 8px; border-radius: 6px;")
+            layout.addWidget(info)
+        layout.addWidget(_rotulo("Motivo do cancelamento:"))
+        self.motivos = QComboBox()
+        self.motivos.addItems(MOTIVOS_PRONTOS)
+        layout.addWidget(self.motivos)
+        self.outro = QLineEdit()
+        self.outro.setPlaceholderText("Descreva o motivo")
+        self.outro.setVisible(False)
+        layout.addWidget(self.outro)
+        self.motivos.currentTextChanged.connect(
+            lambda t: (self.outro.setVisible(t.endswith("…")), self.outro.setFocus()))
+        layout.addWidget(_rotulo("O recibo não é apagado: ele continua na lista como Cancelado, "
+                                 "com o motivo no histórico.", "subtitulo"))
+        botoes = QHBoxLayout()
+        botoes.addStretch()
+        voltar = QPushButton("Voltar")
+        voltar.setObjectName("secundario")
+        voltar.clicked.connect(self.reject)
+        confirmar = QPushButton("Cancelar recibo")
+        confirmar.setStyleSheet(f"background: {tema.VERMELHO};")
+        confirmar.clicked.connect(self.accept)
+        botoes.addWidget(voltar)
+        botoes.addWidget(confirmar)
+        layout.addLayout(botoes)
+
+    def motivo(self) -> str:
+        t = self.motivos.currentText()
+        return self.outro.text() if t.endswith("…") else t
+
+
+EXPLICACAO_STATUS = {
+    "RASCUNHO": "Rascunho: ainda não foi enviado. Você pode editar ou cancelar à vontade.",
+    "ENVIADO": "Enviado ao gestor, aguardando pagamento. Editar cria uma correção; cancelar avisa o gestor "
+               "na próxima exportação.",
+    "PARCIAL": "Pago em parte pelo gestor. Para mudar algo, combine com o gestor.",
+    "PAGO": "Pago pelo gestor. Não pode mais ser alterado.",
+    "CANCELADO": "Cancelado. Veja o motivo no Histórico.",
+    "PENDENTE": "Na fila de pagamento do gestor.",
+}
+
+
 ACOES_HISTORICO = {
     "CRIADO": "Cadastrado", "ALTERADO": "Alterado", "CANCELADO": "Cancelado",
     "EXPORTADO": "Enviado ao gestor", "REENVIADO": "Reenviado ao gestor",
     "IMPORTADO": "Importado", "PAGAMENTO": "Pagamento", "PAGAMENTO_ESTORNADO": "Pagamento estornado",
+    "CORRECAO_DE": "Criado como correção", "CANCELAMENTO_AVISADO": "Cancelamento avisado ao gestor",
 }
 NOMES_CAMPOS = {"colaborador_id": "Colaborador", "equipe": "Equipe", "valor_centavos": "Valor",
                 "descricao": "Descrição", "data_despesa": "Data"}
@@ -482,21 +554,33 @@ class TelaRecibos(QWidget):
             self.status.addItem(nome, codigo)
         self.equipe = QComboBox()
         self.equipe.setMinimumWidth(160)
+        self.ver_cancelados = QCheckBox("Mostrar cancelados")
         filtros.addWidget(self.busca, 1)
         filtros.addWidget(self.status)
         filtros.addWidget(self.equipe)
+        filtros.addWidget(self.ver_cancelados)
         layout.addLayout(filtros)
 
         acoes = QHBoxLayout()
-        self.bt_comprov = QPushButton("Ver comprovante")
-        self.bt_editar = QPushButton("Editar")
+        self.bt_novo = QPushButton("+ Novo recibo")
+        self.bt_novo.clicked.connect(lambda: self.ir_para and self.ir_para("Cadastrar recibos"))
+        self.bt_editar = QPushButton("Editar / corrigir")
+        self.bt_editar.setToolTip("Atalho: Enter ou duplo clique")
         self.bt_cancelar = QPushButton("Cancelar recibo")
+        self.bt_cancelar.setToolTip("Atalho: tecla Delete")
+        self.bt_comprov = QPushButton("Ver comprovante")
         self.bt_hist = QPushButton("Histórico")
-        for b in (self.bt_comprov, self.bt_editar, self.bt_cancelar, self.bt_hist):
+        acoes.addWidget(self.bt_novo)
+        for b in (self.bt_editar, self.bt_cancelar, self.bt_comprov, self.bt_hist):
             b.setObjectName("secundario")
             acoes.addWidget(b)
         acoes.addStretch()
         layout.addLayout(acoes)
+        self.ir_para = None  # definido pela janela principal
+
+        self.dica = _rotulo("Selecione um recibo na lista para ver o que dá para fazer com ele.", "subtitulo")
+        self.dica.setStyleSheet(f"background: {tema.FUNDO_MENU}; padding: 8px; border-radius: 6px;")
+        layout.addWidget(self.dica)
 
         self.modelo = ModeloRecibos()
         self.tabela = QTableView()
@@ -516,8 +600,13 @@ class TelaRecibos(QWidget):
         self.busca.textChanged.connect(self.atualizar)
         self.status.currentIndexChanged.connect(self.atualizar)
         self.equipe.currentIndexChanged.connect(self.atualizar)
+        self.ver_cancelados.toggled.connect(self.atualizar)
         self.tabela.selectionModel().selectionChanged.connect(self._ajustar_botoes)
         self.tabela.doubleClicked.connect(self._editar)
+        self.tabela.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.tabela.customContextMenuRequested.connect(self._menu_contexto)
+        QShortcut(QKeySequence(Qt.Key.Key_Delete), self.tabela, self._cancelar)
+        QShortcut(QKeySequence(Qt.Key.Key_Return), self.tabela, self._editar)
         self.bt_comprov.clicked.connect(self._ver_comprovante)
         self.bt_editar.clicked.connect(self._editar)
         self.bt_cancelar.clicked.connect(self._cancelar)
@@ -538,6 +627,8 @@ class TelaRecibos(QWidget):
         self._recarregar_equipes()
         itens = recibos.listar(self.con, status=self.status.currentData(),
                                equipe=self.equipe.currentData(), busca=self.busca.text())
+        if not self.ver_cancelados.isChecked() and self.status.currentData() != "CANCELADO":
+            itens = [r for r in itens if r.status != "CANCELADO"]
         self.modelo.definir(itens)
         self.tabela.resizeColumnsToContents()
         validos = [r for r in itens if r.status != "CANCELADO"]
@@ -553,11 +644,31 @@ class TelaRecibos(QWidget):
         return self.modelo.itens[linhas[0].row()] if linhas else None
 
     def _ajustar_botoes(self, *_) -> None:
+        """Os botões ficam ativos com um recibo selecionado; se a ação não for possível,
+        o clique explica o motivo (em vez de um botão cinza sem explicação)."""
         r = self._selecionado()
-        self.bt_comprov.setEnabled(r is not None)
-        self.bt_hist.setEnabled(r is not None)
-        self.bt_editar.setEnabled(bool(r and r.editavel))
-        self.bt_cancelar.setEnabled(bool(r and r.editavel))
+        for b in (self.bt_comprov, self.bt_hist, self.bt_editar, self.bt_cancelar):
+            b.setEnabled(r is not None)
+        if not r:
+            self.dica.setText("Selecione um recibo na lista para ver o que dá para fazer com ele.")
+            return
+        cor = CORES_STATUS.get(r.status, tema.TEXTO)
+        self.dica.setText(f"<b style='color:{cor}'>{STATUS[r.status]}</b> — {EXPLICACAO_STATUS[r.status]}")
+        pode, _ = recibos.pode_cancelar(r)
+        self.bt_editar.setText("Corrigir…" if r.status == "ENVIADO" else "Editar / corrigir")
+        self.bt_cancelar.setToolTip("Atalho: tecla Delete" if pode else recibos.pode_cancelar(r)[1])
+
+    def _menu_contexto(self, posicao) -> None:
+        if not self.tabela.indexAt(posicao).isValid():
+            return
+        self.tabela.selectRow(self.tabela.indexAt(posicao).row())
+        menu = QMenu(self)
+        menu.addAction("Editar / corrigir", self._editar)
+        menu.addAction("Cancelar recibo", self._cancelar)
+        menu.addSeparator()
+        menu.addAction("Ver comprovante", self._ver_comprovante)
+        menu.addAction("Histórico", self._historico)
+        menu.exec(self.tabela.viewport().mapToGlobal(posicao))
 
     def _ver_comprovante(self) -> None:
         r = self._selecionado()
@@ -568,26 +679,35 @@ class TelaRecibos(QWidget):
         r = self._selecionado()
         if not r:
             return
-        if not r.editavel:
-            QMessageBox.information(self, "Não editável",
-                                    "Este recibo já foi exportado e não pode ser editado.")
+        pode, motivo = recibos.pode_cancelar(r)
+        if not pode:
+            QMessageBox.information(self, "Não é possível editar", motivo)
             return
-        if DialogoEditarRecibo(self.con, self.usuario, r).exec() == QDialog.DialogCode.Accepted:
+        dialogo = DialogoEditarRecibo(self.con, self.usuario, r)
+        if dialogo.exec() == QDialog.DialogCode.Accepted:
             self.atualizar()
+            if dialogo.correcao:
+                QMessageBox.information(
+                    self, "Correção salva",
+                    "✓ O recibo corrigido foi criado como rascunho e o original foi cancelado.\n\n"
+                    "Vá em Exportar recibos para enviar a correção ao gestor.")
 
     def _cancelar(self) -> None:
         r = self._selecionado()
         if not r:
             return
-        motivo, ok = QInputDialog.getText(
-            self, "Cancelar recibo",
-            f"Motivo do cancelamento de {r.colaborador_nome} ({dinheiro.formatar(r.valor_centavos)}):")
-        if not ok:
+        pode, aviso = recibos.pode_cancelar(r)
+        if not pode:
+            QMessageBox.information(self, "Não é possível cancelar", aviso)
+            return
+        dialogo = DialogoCancelarRecibo(r, aviso)
+        if dialogo.exec() != QDialog.DialogCode.Accepted:
             return
         try:
-            recibos.cancelar(self.con, self.usuario, r.id, motivo)
+            recibos.cancelar(self.con, self.usuario, r.id, dialogo.motivo())
         except (ValueError, PermissionError) as e:
-            QMessageBox.warning(self, "Não foi possível", str(e))
+            QMessageBox.warning(self, "Não foi possível cancelar", str(e))
+            return
         self.atualizar()
 
     def _historico(self) -> None:

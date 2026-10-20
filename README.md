@@ -9,6 +9,11 @@ Programa para PC (Windows) para organizar recibos de despesas e controlar pagame
 - **Supervisor**: cadastra recibos e colaboradores, exporta recibos e importa o retorno dos pagamentos.
 - **Gestor**: importa recibos, registra pagamentos Pix com comprovante e exporta o retorno.
 
+## Usuários
+
+Na tela de entrada, cada pessoa escolhe o próprio nome e digita a senha. O botão **Cadastrar novo usuário**
+cria uma conta de Supervisor ou de Gestor. Cada conta tem os próprios dados, mesmo no mesmo computador.
+
 ## Fluxo resumido
 
 1. O supervisor cadastra os recibos (com comprovante obrigatório).

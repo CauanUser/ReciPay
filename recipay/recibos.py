@@ -235,22 +235,77 @@ def atualizar(
     return buscar(con, recibo_id)
 
 
+def pode_cancelar(r: Recibo) -> tuple[bool, str]:
+    """Diz se o recibo pode ser cancelado/corrigido e, se não, por quê (para mostrar na tela)."""
+    if r.status == "RASCUNHO":
+        return True, ""
+    if r.status == "ENVIADO":
+        return True, "O gestor será avisado do cancelamento na próxima planilha que você exportar."
+    if r.status == "CANCELADO":
+        return False, "Este recibo já está cancelado."
+    if r.status in ("PARCIAL", "PAGO"):
+        return False, ("O gestor já registrou pagamento para este recibo. "
+                       "Para corrigir, combine com o gestor (ele pode estornar o pagamento).")
+    return False, "Este recibo não pode ser alterado aqui."
+
+
 def cancelar(con: sqlite3.Connection, usuario: Usuario, recibo_id: str, motivo: str) -> None:
-    """Cancela com motivo. Nada é apagado (RN-12)."""
+    """Cancela com motivo. Nada é apagado (RN-12).
+
+    Rascunho: cancela direto. Enviado: cancela aqui e o aviso vai ao gestor na próxima
+    planilha exportada (ele tira o recibo da fila, se ainda não tiver pago).
+    """
     _exigir_supervisor(usuario)
     atual = buscar(con, recibo_id)
     if not atual:
         raise ValueError("Recibo não encontrado.")
-    if not atual.editavel:
-        raise ValueError("Só é possível cancelar recibos que ainda não foram exportados.")
+    permitido, motivo_bloqueio = pode_cancelar(atual)
+    if not permitido:
+        raise ValueError(motivo_bloqueio)
     motivo = " ".join((motivo or "").split())
     if len(motivo) < 3:
         raise ValueError("Informe o motivo do cancelamento.")
     with con:
         con.execute("UPDATE recibo SET status = 'CANCELADO', cancelamento_motivo = ? WHERE id = ?",
                     (motivo, recibo_id))
-        registrar_historico(con, "recibo", recibo_id, "CANCELADO", {"motivo": motivo},
+        registrar_historico(con, "recibo", recibo_id, "CANCELADO",
+                            {"motivo": motivo, "avisar_gestor": atual.status == "ENVIADO"},
                             usuario.id, usuario.perfil)
+
+
+def corrigir(
+    con: sqlite3.Connection,
+    usuario: Usuario,
+    recibo_id: str,
+    dados: dict,
+    novo_comprovante: str | None = None,
+) -> Recibo:
+    """Corrige um recibo. Rascunho: edita direto. Enviado: cancela o original (o gestor é
+    avisado) e cria um novo rascunho com os dados corrigidos, para enviar de novo."""
+    atual = buscar(con, recibo_id)
+    if not atual:
+        raise ValueError("Recibo não encontrado.")
+    if atual.status == "RASCUNHO":
+        return atualizar(con, usuario, recibo_id, dados, novo_comprovante)
+    permitido, motivo_bloqueio = pode_cancelar(atual)
+    if not permitido:
+        raise ValueError(motivo_bloqueio)
+    validar(con, dados)
+    comprovante = novo_comprovante or str(comprovantes.caminho_absoluto(atual.comprovante_arquivo))
+    novo = criar(con, usuario, dados, comprovante)
+    cancelar(con, usuario, recibo_id, f"Corrigido (substituído por novo recibo de "
+                                      f"{novo.data_despesa[8:10]}/{novo.data_despesa[5:7]})")
+    registrar_historico(con, "recibo", novo.id, "CORRECAO_DE", {"original": recibo_id},
+                        usuario.id, usuario.perfil)
+    con.commit()
+    return novo
+
+
+def cancelamentos_a_avisar(con: sqlite3.Connection, supervisor_id: str) -> list[Recibo]:
+    """Recibos que já tinham sido enviados e foram cancelados, com aviso ainda não enviado."""
+    return [r for r in listar(con, status="CANCELADO", supervisor_id=supervisor_id)
+            if r.lote_id and not con.execute(
+                "SELECT cancelamento_enviado_lote FROM recibo WHERE id = ?", (r.id,)).fetchone()[0]]
 
 
 def historico(con: sqlite3.Connection, recibo_id: str) -> list[sqlite3.Row]:

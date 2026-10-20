@@ -12,7 +12,7 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
-VERSAO_SCHEMA = 1
+VERSAO_SCHEMA = 2
 
 SCHEMA_V1 = """
 CREATE TABLE usuario (
@@ -160,12 +160,23 @@ def conectar(caminho: Path | str) -> sqlite3.Connection:
     return con
 
 
+# v2: cancelamento de recibo já enviado ao gestor é avisado na próxima planilha.
+SCHEMA_V2 = """
+ALTER TABLE recibo ADD COLUMN cancelamento_enviado_lote TEXT;
+"""
+
+
 def _migrar(con: sqlite3.Connection) -> None:
     versao = con.execute("PRAGMA user_version").fetchone()[0]
     if versao < 1:
         with con:
             con.executescript(SCHEMA_V1)
-            con.execute(f"PRAGMA user_version = {VERSAO_SCHEMA}")
+            con.execute("PRAGMA user_version = 1")
+        versao = 1
+    if versao < 2:
+        with con:
+            con.executescript(SCHEMA_V2)
+            con.execute("PRAGMA user_version = 2")
 
 
 def registrar_historico(
