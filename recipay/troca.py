@@ -131,7 +131,7 @@ def exportar_recibos(
         itens.append({
             "id": r.id, "ref": _ref(r.id), "colaborador_id": r.colaborador_id, "equipe": r.equipe,
             "valor_centavos": r.valor_centavos, "descricao": r.descricao,
-            "data_despesa": r.data_despesa,
+            "data_despesa": r.data_despesa, "categoria": r.categoria, "chave_nfe": r.chave_nfe,
             "comprovante": {"hash": hash_, "extensao": Path(r.comprovante_arquivo).suffix.lower()},
         })
 
@@ -227,11 +227,11 @@ def _montar_planilha(lista, colabs, dados, texto_dados, hash_dados, arquivos_com
     # ---- Recibos (legível)
     ws = wb.active
     ws.title = "Recibos"
-    _cabecalho(ws, ["Ref", "Data", "Colaborador", "Equipe", "Descrição", "Valor (R$)"],
-               [12, 12, 30, 16, 40, 14])
+    _cabecalho(ws, ["Ref", "Data", "Colaborador", "Equipe", "Descrição", "Valor (R$)", "Categoria"],
+               [12, 12, 30, 16, 40, 14, 26])
     for r in lista:
         ws.append([_ref(r.id), date.fromisoformat(r.data_despesa), r.colaborador_nome,
-                   r.equipe, r.descricao, r.valor_centavos / 100])
+                   r.equipe, r.descricao, r.valor_centavos / 100, r.categoria_nome])
     for linha in ws.iter_rows(min_row=2):
         linha[1].number_format = "DD/MM/YYYY"
         linha[5].number_format = '"R$" #,##0.00'
@@ -448,6 +448,19 @@ def ler_arquivo(con: sqlite3.Connection, caminho: Path | str) -> PreviaImportaca
             acao = "JA_PAGO"
         previa.cancelamentos.append(CancelamentoPrevia(
             c["id"], c["ref"], c["colaborador"], c["valor_centavos"], c["motivo"], acao))
+    # Mesmo cupom fiscal em recibos diferentes (ex.: enviado por dois supervisores)?
+    for item in previa.novos:
+        chave = item.dados.get("chave_nfe")
+        if chave:
+            outro = con.execute(
+                "SELECT c.nome, u.nome AS sup FROM recibo r JOIN colaborador c ON c.id = r.colaborador_id"
+                " LEFT JOIN usuario u ON u.id = r.supervisor_id"
+                " WHERE r.chave_nfe = ? AND r.id != ? AND r.status != 'CANCELADO'",
+                (chave, item.dados["id"])).fetchone()
+            if outro:
+                previa.avisos.append(
+                    f"O cupom fiscal do recibo {item.dados['ref']} ({item.colaborador_nome}) já está em outro "
+                    f"recibo ({outro['nome']}, supervisor {outro['sup'] or '?'}). Confira antes de pagar.")
     if any(c.acao == "JA_PAGO" for c in previa.cancelamentos):
         previa.avisos.append("O supervisor cancelou recibo(s) que você já pagou (total ou parcial). "
                              "Combine com ele: se for o caso, estorne o pagamento.")
@@ -543,11 +556,12 @@ def importar(
             r = item.dados
             con.execute(
                 "INSERT INTO recibo (id, colaborador_id, supervisor_id, equipe, valor_centavos,"
-                " descricao, data_despesa, comprovante_arquivo, comprovante_hash, status, lote_id, criado_em)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDENTE', ?, ?)",
+                " descricao, data_despesa, comprovante_arquivo, comprovante_hash, status, lote_id, criado_em,"
+                " categoria, chave_nfe) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDENTE', ?, ?, ?, ?)",
                 (r["id"], r["colaborador_id"], sup["id"], r["equipe"], r["valor_centavos"],
                  r["descricao"], r["data_despesa"], destinos[r["comprovante"]["hash"]],
-                 r["comprovante"]["hash"], d["lote_id"], momento))
+                 r["comprovante"]["hash"], d["lote_id"], momento,
+                 r.get("categoria") or "OUTROS", r.get("chave_nfe")))
             registrar_historico(con, "recibo", r["id"], "IMPORTADO",
                                 {"lote_id": d["lote_id"], "arquivo": previa.arquivo_nome},
                                 usuario.id, usuario.perfil)

@@ -18,6 +18,16 @@ STATUS = {
 }
 DIAS_MAXIMOS_NO_PASSADO = 365
 
+CATEGORIAS = {
+    "ALIMENTACAO": "Alimentação",
+    "COMBUSTIVEL": "Combustível",
+    "HOSPEDAGEM": "Hospedagem",
+    "TRANSPORTE": "Transporte (táxi, app, ônibus)",
+    "ESTACIONAMENTO": "Estacionamento e pedágio",
+    "MATERIAL": "Material e ferramentas",
+    "OUTROS": "Outros",
+}
+
 
 @dataclass
 class Recibo:
@@ -36,6 +46,12 @@ class Recibo:
     supervisor_id: str = ""
     supervisor_nome: str = ""
     lote_id: str | None = None
+    categoria: str = "OUTROS"
+    chave_nfe: str | None = None
+
+    @property
+    def categoria_nome(self) -> str:
+        return CATEGORIAS.get(self.categoria, "Outros")
 
     @property
     def editavel(self) -> bool:
@@ -57,6 +73,7 @@ def _de_linha(l: sqlite3.Row) -> Recibo:
         l["saldo_centavos"], l["descricao"], l["data_despesa"], l["comprovante_arquivo"],
         l["status"], l["cancelamento_motivo"], l["criado_em"],
         l["supervisor_id"], l["supervisor_nome"] or "", l["lote_id"],
+        l["categoria"] or "OUTROS", l["chave_nfe"],
     )
 
 
@@ -91,6 +108,20 @@ def validar(con: sqlite3.Connection, dados: dict) -> dict:
     if data < date.today() - timedelta(days=DIAS_MAXIMOS_NO_PASSADO):
         raise ValueError("A data da despesa tem mais de um ano. Confira a data.")
 
+    categoria = dados.get("categoria") or "OUTROS"
+    if categoria not in CATEGORIAS:
+        raise ValueError("Escolha a categoria da despesa.")
+
+    chave_nfe = dados.get("chave_nfe") or None
+    if chave_nfe:
+        repetido = con.execute(
+            "SELECT r.data_despesa, c.nome FROM recibo r JOIN colaborador c ON c.id = r.colaborador_id"
+            " WHERE r.chave_nfe = ? AND r.status != 'CANCELADO' AND r.id IS NOT ?",
+            (chave_nfe, dados.get("_ignorar_id"))).fetchone()
+        if repetido:
+            raise ValueError(f"Este cupom fiscal já foi usado no recibo de {repetido['nome']} "
+                             f"({date.fromisoformat(repetido['data_despesa']).strftime('%d/%m/%Y')}).")
+
     equipe = " ".join((dados.get("equipe") or colaborador.equipe).split())
     return {
         "colaborador_id": colaborador.id,
@@ -98,6 +129,8 @@ def validar(con: sqlite3.Connection, dados: dict) -> dict:
         "valor_centavos": valor,
         "descricao": descricao,
         "data_despesa": data.isoformat(),
+        "categoria": categoria,
+        "chave_nfe": chave_nfe,
     }
 
 
@@ -105,10 +138,10 @@ def _inserir(con: sqlite3.Connection, usuario: Usuario, v: dict, arquivo: str, h
     recibo_id = novo_id()
     con.execute(
         "INSERT INTO recibo (id, colaborador_id, supervisor_id, equipe, valor_centavos,"
-        " descricao, data_despesa, comprovante_arquivo, comprovante_hash, status, criado_em)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'RASCUNHO', ?)",
+        " descricao, data_despesa, comprovante_arquivo, comprovante_hash, status, criado_em,"
+        " categoria, chave_nfe) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'RASCUNHO', ?, ?, ?)",
         (recibo_id, v["colaborador_id"], usuario.id, v["equipe"], v["valor_centavos"],
-         v["descricao"], v["data_despesa"], arquivo, hash_, agora()),
+         v["descricao"], v["data_despesa"], arquivo, hash_, agora(), v["categoria"], v["chave_nfe"]),
     )
     registrar_historico(con, "recibo", recibo_id, "CRIADO", {**v, "comprovante": arquivo},
                         usuario.id, usuario.perfil)
@@ -135,9 +168,14 @@ def criar_lote(
     if not itens:
         raise ValueError("Adicione pelo menos um recibo.")
     preparados = []
+    cupons_no_lote: dict[str, int] = {}
     for i, (dados, comprovante) in enumerate(itens, start=1):
         try:
             v = validar(con, dados)
+            if v["chave_nfe"]:
+                if v["chave_nfe"] in cupons_no_lote:
+                    raise ValueError(f"repete o cupom fiscal da linha {cupons_no_lote[v['chave_nfe']]}.")
+                cupons_no_lote[v["chave_nfe"]] = i
             if not comprovante:
                 raise ValueError("Anexe o comprovante da despesa.")
             arquivo, hash_ = comprovantes.guardar(comprovante)
@@ -162,6 +200,7 @@ def listar(
     data_inicio: str | None = None,
     data_fim: str | None = None,
     supervisor_id: str | None = None,
+    categoria: str | None = None,
 ) -> list[Recibo]:
     sql = _SELECT + " WHERE 1 = 1"
     params: list = []
@@ -181,6 +220,9 @@ def listar(
     if supervisor_id:
         sql += " AND r.supervisor_id = ?"
         params.append(supervisor_id)
+    if categoria:
+        sql += " AND r.categoria = ?"
+        params.append(categoria)
     if data_inicio:
         sql += " AND r.data_despesa >= ?"
         params.append(data_inicio)
@@ -210,9 +252,12 @@ def atualizar(
         raise ValueError("Recibo não encontrado.")
     if not atual.editavel:
         raise ValueError("Este recibo já foi exportado e não pode mais ser editado.")
-    v = validar(con, dados)
+    v = validar(con, {**dados, "_ignorar_id": recibo_id})
+    if "chave_nfe" not in dados:
+        v["chave_nfe"] = atual.chave_nfe  # sem novo QR lido: mantém o cupom já associado
 
-    campos = ("colaborador_id", "equipe", "valor_centavos", "descricao", "data_despesa")
+    campos = ("colaborador_id", "equipe", "valor_centavos", "descricao", "data_despesa", "categoria",
+              "chave_nfe")
     mudancas = {c: {"antes": getattr(atual, c), "depois": v[c]}
                 for c in campos if getattr(atual, c) != v[c]}
     arquivo, hash_ = atual.comprovante_arquivo, None
@@ -225,10 +270,10 @@ def atualizar(
     with con:
         con.execute(
             "UPDATE recibo SET colaborador_id = ?, equipe = ?, valor_centavos = ?, descricao = ?,"
-            " data_despesa = ?, comprovante_arquivo = ?,"
+            " data_despesa = ?, categoria = ?, chave_nfe = ?, comprovante_arquivo = ?,"
             " comprovante_hash = COALESCE(?, comprovante_hash) WHERE id = ?",
             (v["colaborador_id"], v["equipe"], v["valor_centavos"], v["descricao"],
-             v["data_despesa"], arquivo, hash_, recibo_id),
+             v["data_despesa"], v["categoria"], v["chave_nfe"], arquivo, hash_, recibo_id),
         )
         registrar_historico(con, "recibo", recibo_id, "ALTERADO", mudancas,
                             usuario.id, usuario.perfil)
@@ -290,6 +335,7 @@ def corrigir(
     permitido, motivo_bloqueio = pode_cancelar(atual)
     if not permitido:
         raise ValueError(motivo_bloqueio)
+    dados = {"chave_nfe": atual.chave_nfe, "categoria": atual.categoria, **dados, "_ignorar_id": recibo_id}
     validar(con, dados)
     comprovante = novo_comprovante or str(comprovantes.caminho_absoluto(atual.comprovante_arquivo))
     novo = criar(con, usuario, dados, comprovante)

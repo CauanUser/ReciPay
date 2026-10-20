@@ -3,12 +3,15 @@
 import sqlite3
 
 from PySide6.QtCore import Signal
+from PySide6.QtGui import QActionGroup
 from PySide6.QtWidgets import (
+    QApplication,
     QFrame,
     QHBoxLayout,
     QLabel,
     QListWidget,
     QMainWindow,
+    QMenu,
     QPushButton,
     QStackedWidget,
     QVBoxLayout,
@@ -17,11 +20,13 @@ from PySide6.QtWidgets import (
 
 from recipay import __version__
 from recipay.auth import Usuario
+from recipay.ui import tema
 from recipay.ui.tela_backup import TelaBackup
 from recipay.ui.tela_colaboradores import TelaColaboradores
 from recipay.ui.tela_inicio import TelaInicio
 from recipay.ui.tela_pagamento import TelaPagamentosConcluidos, TelaRealizarPagamento
 from recipay.ui.tela_recibos import TelaCadastrarRecibos, TelaRecibos
+from recipay.ui.tela_relatorios import TelaRelatorios
 from recipay.ui.tela_retorno import TelaRetornoHistorico
 from recipay.ui.tela_troca import TelaExportarRecibos, TelaImportarArquivo, TelaPagamentosPendentes
 
@@ -29,6 +34,7 @@ from recipay.ui.tela_troca import TelaExportarRecibos, TelaImportarArquivo, Tela
 TELAS_PRONTAS = {
     "Início": TelaInicio,
     "Backup": TelaBackup,
+    "Relatórios": TelaRelatorios,
     "Colaboradores": TelaColaboradores,
     "Recibos": TelaRecibos,
     "Cadastrar recibos": TelaCadastrarRecibos,
@@ -49,6 +55,7 @@ TELAS = {
         "Colaboradores",
         "Exportar recibos",
         "Retorno e histórico",
+        "Relatórios",
         "Backup",
     ],
     "GESTOR": [
@@ -58,6 +65,7 @@ TELAS = {
         "Realizar pagamento",
         "Pagamentos concluídos",
         "Colaboradores",
+        "Relatórios",
         "Backup",
     ],
 }
@@ -79,6 +87,7 @@ class TelaEmConstrucao(QWidget):
 
 class JanelaPrincipal(QMainWindow):
     sair = Signal()  # botão "Sair": volta para o login
+    recriar = Signal(str)  # aparência mudou: recriar a janela na mesma tela
     fechada = Signal()  # janela fechada pelo "X": encerra o programa
 
     def __init__(self, con: sqlite3.Connection, usuario: Usuario):
@@ -103,6 +112,10 @@ class JanelaPrincipal(QMainWindow):
         linha.addWidget(marca)
         linha.addStretch()
         linha.addWidget(QLabel(f"{usuario.nome} · {usuario.perfil_nome}"))
+        self.bt_aparencia = QPushButton("Aparência")
+        self.bt_aparencia.setToolTip("Modo escuro e tamanho da letra")
+        self.bt_aparencia.setMenu(self._menu_aparencia())
+        linha.addWidget(self.bt_aparencia)
         botao_sair = QPushButton("Sair")
         botao_sair.clicked.connect(self._sair)
         linha.addWidget(botao_sair)
@@ -157,6 +170,34 @@ class JanelaPrincipal(QMainWindow):
         tela = self.telas.widget(indice)
         if hasattr(tela, "atualizar"):
             tela.atualizar()  # mostra dados novos cadastrados em outras telas
+
+    def _menu_aparencia(self) -> QMenu:
+        menu = QMenu(self)
+        grupo_modo = QActionGroup(menu)
+        for codigo, nome in (("claro", "Modo claro"), ("escuro", "Modo escuro")):
+            acao = menu.addAction(nome)
+            acao.setCheckable(True)
+            acao.setChecked(tema.modo == codigo)
+            grupo_modo.addAction(acao)
+            acao.triggered.connect(lambda _=False, c=codigo: self._mudar_aparencia(modo=c))
+        menu.addSeparator()
+        grupo_letra = QActionGroup(menu)
+        for codigo, nome in tema.NOMES_TAMANHOS.items():
+            acao = menu.addAction(f"Letra {nome.lower()}")
+            acao.setCheckable(True)
+            acao.setChecked(tema.tamanho == codigo)
+            grupo_letra.addAction(acao)
+            acao.triggered.connect(lambda _=False, c=codigo: self._mudar_aparencia(tamanho=c))
+        return menu
+
+    def _mudar_aparencia(self, modo: str | None = None, tamanho: str | None = None) -> None:
+        tema.aplicar(QApplication.instance(), modo, tamanho)
+        self.recriar.emit(TELAS[self.usuario.perfil][self.menu.currentRow()])
+
+    def fechar_sem_sair(self) -> None:
+        """Fecha esta janela sem encerrar o programa (usado ao recriar)."""
+        self._saindo = True
+        self.close()
 
     def _sair(self) -> None:
         self._saindo = True

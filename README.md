@@ -14,6 +14,13 @@ Programa para PC (Windows) para organizar recibos de despesas e controlar pagame
 Na tela de entrada, cada pessoa escolhe o próprio nome e digita a senha. O botão **Cadastrar novo usuário**
 cria uma conta de Supervisor ou de Gestor. Cada conta tem os próprios dados, mesmo no mesmo computador.
 
+## Recursos
+
+- Categorias de despesa (alimentação, combustível, hospedagem, transporte…) em cada recibo.
+- Leitura do QR Code do cupom fiscal (NFC-e/SAT) na foto: identifica o cupom, avisa se for lançado duas vezes e preenche data/valor quando o QR traz.
+- Relatório mensal em Excel (por categoria, equipe e colaborador; lançado, pago e pendente) e gráficos no Início.
+- Modo escuro e tamanho de letra ajustável (botão **Aparência**, no topo).
+
 ## Fluxo resumido
 
 1. O supervisor cadastra os recibos (com comprovante obrigatório).

@@ -6,9 +6,10 @@ from datetime import date
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
-from recipay import backup, dinheiro
+from recipay import backup, dinheiro, relatorio
 from recipay.auth import Usuario
 from recipay.ui import tema
+from recipay.ui.graficos import GraficoBarras
 
 
 class Cartao(QFrame):
@@ -19,7 +20,7 @@ class Cartao(QFrame):
         self.setObjectName("cartao")
         self.setStyleSheet(
             f"QFrame#cartao {{ border: 1px solid {tema.BORDA}; border-left: 4px solid {cor};"
-            f" border-radius: 8px; background: #FFFFFF; }}"
+            f" border-radius: 8px; background: {tema.SUPERFICIE}; }}"
             "QFrame#cartao QLabel { background: transparent; border: none; }")
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 12, 16, 12)
@@ -60,7 +61,7 @@ class TelaInicio(QWidget):
 
         self.aviso_backup = QPushButton("")
         self.aviso_backup.setStyleSheet(
-            f"QPushButton {{ background: #FFF4E0; color: {tema.TEXTO}; border: 1px solid {tema.LARANJA};"
+            f"QPushButton {{ background: {tema.AVISO_FUNDO}; color: {tema.TEXTO}; border: 1px solid {tema.LARANJA};"
             " text-align: left; padding: 10px 14px; font-weight: normal; }")
         self.aviso_backup.clicked.connect(lambda: self._ir("Backup"))
         layout.addWidget(self.aviso_backup)
@@ -89,11 +90,13 @@ class TelaInicio(QWidget):
         opcoes = (
             [("Importar arquivo do supervisor", "Importar arquivo"),
              ("Realizar pagamento", "Realizar pagamento"),
-             ("Exportar retorno", "Pagamentos concluídos")]
+             ("Exportar retorno", "Pagamentos concluídos"),
+             ("Relatório do mês", "Relatórios")]
             if self.gestor else
             [("Cadastrar recibos", "Cadastrar recibos"),
              ("Exportar para o gestor", "Exportar recibos"),
-             ("Importar retorno do gestor", "Retorno e histórico")])
+             ("Importar retorno do gestor", "Retorno e histórico"),
+             ("Relatório do mês", "Relatórios")])
         for i, (texto, destino) in enumerate(opcoes):
             b = QPushButton(texto)
             if i:
@@ -102,7 +105,27 @@ class TelaInicio(QWidget):
             atalhos.addWidget(b)
         atalhos.addStretch()
         layout.addLayout(atalhos)
-        layout.addStretch()
+        layout.addSpacing(16)
+
+        graficos = QHBoxLayout()
+        graficos.setSpacing(16)
+        self.g_meses = GraficoBarras(vazio="Nenhum recibo nos últimos 6 meses")
+        self.g_equipes = GraficoBarras(horizontal=True, vazio="Nenhum recibo nos últimos 6 meses")
+        for titulo, grafico in (("Gastos lançados nos últimos 6 meses", self.g_meses),
+                                ("Equipes que mais gastaram (6 meses)", self.g_equipes)):
+            caixa = QFrame()
+            caixa.setObjectName("cartao")
+            caixa.setStyleSheet(
+                f"QFrame#cartao {{ border: 1px solid {tema.BORDA}; border-radius: 8px;"
+                f" background: {tema.SUPERFICIE}; }} QFrame#cartao QLabel {{ background: transparent; }}"
+                f" QFrame#cartao QWidget {{ background: {tema.SUPERFICIE}; }}")
+            v = QVBoxLayout(caixa)
+            v.setContentsMargins(16, 12, 16, 12)
+            rot = QLabel(f"<b>{titulo}</b>")
+            v.addWidget(rot)
+            v.addWidget(grafico, 1)
+            graficos.addWidget(caixa, 1)
+        layout.addLayout(graficos, 1)
         self.atualizar()
 
     def _ir(self, titulo: str) -> None:
@@ -138,6 +161,9 @@ class TelaInicio(QWidget):
             self.c3.definir(dinheiro.formatar(pago_mes[1]), f"{pago_mes[0]} Pix recebido(s)")
             ativos = _um(con, "SELECT COUNT(*) FROM colaborador WHERE ativo = 1")[0]
             self.c4.definir(str(ativos), "cadastrados")
+
+        self.g_meses.definir(relatorio.ultimos_meses(con, 6))
+        self.g_equipes.definir(relatorio.top_equipes(con, 6, 5))
 
         if backup.precisa_lembrar(con):
             ultimo = backup.ultimo_backup(con)

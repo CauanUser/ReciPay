@@ -12,7 +12,7 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
-VERSAO_SCHEMA = 3
+VERSAO_SCHEMA = 4
 
 SCHEMA_V1 = """
 CREATE TABLE usuario (
@@ -173,6 +173,14 @@ ALTER TABLE usuario ADD COLUMN recuperacao_hash TEXT;
 """
 
 
+# v4: categoria da despesa e chave do cupom fiscal (NFC-e/SAT) lida do QR Code.
+SCHEMA_V4 = """
+ALTER TABLE recibo ADD COLUMN categoria TEXT NOT NULL DEFAULT 'OUTROS';
+ALTER TABLE recibo ADD COLUMN chave_nfe TEXT;
+CREATE INDEX ix_recibo_chave_nfe ON recibo(chave_nfe);
+"""
+
+
 def _migrar(con: sqlite3.Connection) -> None:
     versao = con.execute("PRAGMA user_version").fetchone()[0]
     if versao < 1:
@@ -189,6 +197,11 @@ def _migrar(con: sqlite3.Connection) -> None:
         with con:
             con.executescript(SCHEMA_V3)
             con.execute("PRAGMA user_version = 3")
+        versao = 3
+    if versao < 4:
+        with con:
+            con.executescript(SCHEMA_V4)
+            con.execute("PRAGMA user_version = 4")
 
 
 def registrar_historico(

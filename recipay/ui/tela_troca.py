@@ -251,7 +251,7 @@ class TelaImportarArquivo(QWidget):
         self.tabela = _tabela(["Ref", "Data", "Colaborador", "Equipe", "Descrição", "Valor", "Situação"])
         p.addWidget(self.tabela, 1)
         self.cancelamentos = _rotulo("")
-        self.cancelamentos.setStyleSheet("background: #FDECEA; padding: 8px; border-radius: 6px;")
+        self.cancelamentos.setStyleSheet(f"background: {tema.ERRO_FUNDO}; padding: 8px; border-radius: 6px;")
         p.addWidget(self.cancelamentos)
         self.area_chaves = QVBoxLayout()
         p.addLayout(self.area_chaves)

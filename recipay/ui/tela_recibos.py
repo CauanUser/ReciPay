@@ -27,20 +27,18 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from recipay import colaboradores, comprovantes, dinheiro, recibos
+from recipay import colaboradores, comprovantes, dinheiro, nfce, recibos
 from recipay.auth import Usuario
-from recipay.recibos import STATUS, Recibo
+from recipay.recibos import CATEGORIAS, STATUS, Recibo
 from recipay.ui import tema
 from recipay.ui.componentes import CampoComprovante, ComboColaborador, abrir_arquivo, campo_data
 
-CORES_STATUS = {
-    "RASCUNHO": tema.TEXTO_SUAVE,
-    "ENVIADO": tema.AZUL,
-    "PENDENTE": tema.LARANJA,
-    "PARCIAL": tema.LARANJA,
-    "PAGO": tema.VERDE,
-    "CANCELADO": tema.VERMELHO,
-}
+def cor_status(status: str) -> str:
+    """Cor de cada situação, lida do tema atual (claro ou escuro)."""
+    return {
+        "RASCUNHO": tema.TEXTO_SUAVE, "ENVIADO": tema.AZUL, "PENDENTE": tema.LARANJA,
+        "PARCIAL": tema.LARANJA, "PAGO": tema.VERDE, "CANCELADO": tema.VERMELHO,
+    }.get(status, tema.TEXTO)
 
 
 def _data_br(iso: str) -> str:
@@ -53,6 +51,13 @@ def _rotulo(texto: str, nome: str = "") -> QLabel:
         r.setObjectName(nome)
     r.setWordWrap(True)
     return r
+
+
+def combo_categoria() -> QComboBox:
+    combo = QComboBox()
+    for codigo, nome in CATEGORIAS.items():
+        combo.addItem(nome, codigo)
+    return combo
 
 
 # ---------------------------------------------------------------- formulário
@@ -74,16 +79,24 @@ class FormRecibo(QWidget):
         self.valor.setMaximumWidth(180)
         self.descricao = QLineEdit()
         self.descricao.setPlaceholderText("Ex.: Almoço com cliente, combustível, estacionamento")
+        self.categoria = combo_categoria()
         self.comprovante = CampoComprovante()
+        self.info_cupom = _rotulo("")
+        self.info_cupom.setVisible(False)
+        self.chave_nfe: str | None = None
+        self._chave_mudou = False
 
         form.addRow("Colaborador", self.colaborador)
         form.addRow("Equipe", self.equipe)
+        form.addRow("Categoria", self.categoria)
         form.addRow("Data da despesa", self.data)
         form.addRow("Valor (R$)", self.valor)
         form.addRow("Descrição", self.descricao)
         form.addRow("Comprovante", self.comprovante)
+        form.addRow("", self.info_cupom)
 
         self.colaborador.currentIndexChanged.connect(self._preencher_equipe)
+        self.comprovante.alterado.connect(self._ler_cupom)
 
         if recibo:
             self.colaborador.selecionar(recibo.colaborador_id)
@@ -91,7 +104,40 @@ class FormRecibo(QWidget):
             self.data.setDate(QDate.fromString(recibo.data_despesa, "yyyy-MM-dd"))
             self.valor.setText(dinheiro.formatar(recibo.valor_centavos, simbolo=False))
             self.descricao.setText(recibo.descricao)
+            self.categoria.setCurrentIndex(max(self.categoria.findData(recibo.categoria), 0))
+            self.chave_nfe = recibo.chave_nfe
             self.comprovante.rotulo.setText("Comprovante atual mantido. Anexe outro para trocar.")
+
+    def _ler_cupom(self) -> None:
+        """Ao anexar a foto, procura o QR Code do cupom fiscal e preenche o que der."""
+        self.chave_nfe = None
+        self._chave_mudou = True
+        caminho = self.comprovante.caminho
+        cupom = nfce.ler_imagem(caminho) if caminho else None
+        if not cupom:
+            self.info_cupom.setVisible(bool(caminho) and nfce.disponivel()
+                                       and not caminho.lower().endswith(".pdf"))
+            self.info_cupom.setStyleSheet(f"color: {tema.TEXTO_SUAVE}")
+            self.info_cupom.setText("Nenhum QR Code de cupom fiscal encontrado na imagem. Preencha os campos.")
+            return
+        self.chave_nfe = cupom.chave
+        preenchidos = []
+        if cupom.valor_centavos and not self.valor.text().strip():
+            self.valor.setText(dinheiro.formatar(cupom.valor_centavos, simbolo=False))
+            preenchidos.append("valor")
+        if cupom.data and cupom.data <= date.today():
+            self.data.setDate(QDate(cupom.data.year, cupom.data.month, cupom.data.day))
+            preenchidos.append("data")
+        falta = [] if cupom.valor_centavos else ["valor"]
+        texto = f"✓ Cupom fiscal lido: {cupom.resumo()}."
+        if preenchidos:
+            texto += f" Preenchido: {', '.join(preenchidos)}."
+        if falta:
+            texto += " O valor não vem no QR deste cupom: digite o valor."
+        self.info_cupom.setStyleSheet(
+            f"background: {tema.AZUL_CLARO}; color: {tema.TEXTO}; padding: 8px; border-radius: 6px;")
+        self.info_cupom.setText(texto)
+        self.info_cupom.setVisible(True)
 
     def _preencher_equipe(self) -> None:
         c = colaboradores.buscar(self.con, self.colaborador.colaborador_id() or "")
@@ -100,13 +146,17 @@ class FormRecibo(QWidget):
 
     def dados(self) -> dict:
         """Lê os campos. Levanta ValueError se o valor for inválido."""
-        return {
+        dados = {
             "colaborador_id": self.colaborador.colaborador_id(),
             "equipe": self.equipe.text(),
             "data_despesa": self.data.date().toString("yyyy-MM-dd"),
             "valor_centavos": dinheiro.para_centavos(self.valor.text()),
             "descricao": self.descricao.text(),
+            "categoria": self.categoria.currentData(),
         }
+        if self._chave_mudou or self.chave_nfe:
+            dados["chave_nfe"] = self.chave_nfe
+        return dados
 
     def limpar(self, manter_colaborador: bool = True) -> None:
         if not manter_colaborador:
@@ -115,6 +165,9 @@ class FormRecibo(QWidget):
         self.valor.clear()
         self.descricao.clear()
         self.comprovante.definir(None)
+        self.chave_nfe = None
+        self._chave_mudou = False
+        self.info_cupom.setVisible(False)
         self.valor.setFocus()
 
 
@@ -156,7 +209,7 @@ class AbaUmRecibo(QWidget):
 class AbaLote(QWidget):
     """Vários recibos de uma vez. Data e descrição padrão preenchem as novas linhas."""
 
-    COL_COLAB, COL_DATA, COL_VALOR, COL_DESCR, COL_COMPROV = range(5)
+    COL_COLAB, COL_CATEG, COL_DATA, COL_VALOR, COL_DESCR, COL_COMPROV = range(6)
 
     def __init__(self, con: sqlite3.Connection, usuario: Usuario):
         super().__init__()
@@ -173,19 +226,25 @@ class AbaLote(QWidget):
         self.descr_padrao = QLineEdit()
         self.descr_padrao.setPlaceholderText("Ex.: Reembolso de combustível — semana 42")
         padrao.addWidget(self.descr_padrao, 1)
+        padrao.addSpacing(16)
+        padrao.addWidget(QLabel("Categoria padrão"))
+        self.categ_padrao = combo_categoria()
+        padrao.addWidget(self.categ_padrao)
         layout.addLayout(padrao)
         layout.addWidget(_rotulo(
-            "Os valores padrão preenchem as novas linhas. Cada linha precisa do seu comprovante.",
+            "Os valores padrão preenchem as novas linhas. Cada linha precisa do seu comprovante. "
+            "Fotos de cupom fiscal com QR Code preenchem a data (e o valor, quando o QR traz).",
             "subtitulo"))
 
-        self.tabela = QTableWidget(0, 5)
+        self.tabela = QTableWidget(0, 6)
         self.tabela.setHorizontalHeaderLabels(
-            ["Colaborador", "Data", "Valor (R$)", "Descrição", "Comprovante"])
+            ["Colaborador", "Categoria", "Data", "Valor (R$)", "Descrição", "Comprovante"])
         self.tabela.verticalHeader().setDefaultSectionSize(48)
         cab = self.tabela.horizontalHeader()
         cab.setSectionResizeMode(self.COL_COLAB, QHeaderView.ResizeMode.Stretch)
         cab.setSectionResizeMode(self.COL_DESCR, QHeaderView.ResizeMode.Stretch)
-        for col, largura in ((self.COL_DATA, 130), (self.COL_VALOR, 120), (self.COL_COMPROV, 260)):
+        for col, largura in ((self.COL_CATEG, 170), (self.COL_DATA, 130), (self.COL_VALOR, 120),
+                             (self.COL_COMPROV, 260)):
             self.tabela.setColumnWidth(col, largura)
         layout.addWidget(self.tabela, 1)
 
@@ -221,10 +280,31 @@ class AbaLote(QWidget):
         valor.setPlaceholderText("0,00")
         valor.textChanged.connect(self._atualizar_total)
         descr = QLineEdit(self.descr_padrao.text())
+        categ = combo_categoria()
+        categ.setCurrentIndex(self.categ_padrao.currentIndex())
         comprov = CampoComprovante(compacto=True)
-        for col, w in ((self.COL_COLAB, colab), (self.COL_DATA, data), (self.COL_VALOR, valor),
-                       (self.COL_DESCR, descr), (self.COL_COMPROV, comprov)):
+        comprov.chave_nfe = None
+        comprov.alterado.connect(lambda c=comprov: self._ler_cupom(c))
+        for col, w in ((self.COL_COLAB, colab), (self.COL_CATEG, categ), (self.COL_DATA, data),
+                       (self.COL_VALOR, valor), (self.COL_DESCR, descr), (self.COL_COMPROV, comprov)):
             self.tabela.setCellWidget(i, col, w)
+
+    def _ler_cupom(self, comprov: CampoComprovante) -> None:
+        linha = next((i for i in range(self.tabela.rowCount()) if self._w(i, self.COL_COMPROV) is comprov), -1)
+        comprov.chave_nfe = None
+        if linha < 0 or not comprov.caminho:
+            return
+        cupom = nfce.ler_imagem(comprov.caminho)
+        if not cupom:
+            comprov.setToolTip("")
+            return
+        comprov.chave_nfe = cupom.chave
+        if cupom.valor_centavos and not self._w(linha, self.COL_VALOR).text().strip():
+            self._w(linha, self.COL_VALOR).setText(dinheiro.formatar(cupom.valor_centavos, simbolo=False))
+        if cupom.data and cupom.data <= date.today():
+            self._w(linha, self.COL_DATA).setDate(QDate(cupom.data.year, cupom.data.month, cupom.data.day))
+        comprov.rotulo.setText("✓ Cupom lido")
+        comprov.setToolTip(cupom.resumo())
 
     def _remover(self) -> None:
         linha = self.tabela.currentRow()
@@ -268,6 +348,8 @@ class AbaLote(QWidget):
                 "data_despesa": self._w(i, self.COL_DATA).date().toString("yyyy-MM-dd"),
                 "valor_centavos": valor,
                 "descricao": self._w(i, self.COL_DESCR).text(),
+                "categoria": self._w(i, self.COL_CATEG).currentData(),
+                "chave_nfe": getattr(self._w(i, self.COL_COMPROV), "chave_nfe", None),
             }
             comprovante = self._w(i, self.COL_COMPROV).caminho
             try:  # confere antes, para o erro apontar a linha que aparece na tela
@@ -324,7 +406,7 @@ class TelaCadastrarRecibos(QWidget):
 
 # ---------------------------------------------------------------- lista
 class ModeloRecibos(QAbstractTableModel):
-    COLUNAS = ["Data", "Colaborador", "Equipe", "Descrição", "Valor", "Saldo", "Situação"]
+    COLUNAS = ["Data", "Colaborador", "Equipe", "Categoria", "Descrição", "Valor", "Saldo", "Situação"]
 
     def __init__(self):
         super().__init__()
@@ -351,12 +433,12 @@ class ModeloRecibos(QAbstractTableModel):
         col = indice.column()
         if papel == Qt.ItemDataRole.DisplayRole:
             saldo = "—" if r.status in ("RASCUNHO", "CANCELADO") else dinheiro.formatar(r.saldo_centavos)
-            return [_data_br(r.data_despesa), r.colaborador_nome, r.equipe, r.descricao,
+            return [_data_br(r.data_despesa), r.colaborador_nome, r.equipe, r.categoria_nome, r.descricao,
                     dinheiro.formatar(r.valor_centavos), saldo, STATUS[r.status]][col]
-        if papel == Qt.ItemDataRole.TextAlignmentRole and col in (4, 5):
+        if papel == Qt.ItemDataRole.TextAlignmentRole and col in (5, 6):
             return int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        if papel == Qt.ItemDataRole.ForegroundRole and col == 6:
-            return QColor(CORES_STATUS[r.status])
+        if papel == Qt.ItemDataRole.ForegroundRole and col == 7:
+            return QColor(cor_status(r.status))
         if papel == Qt.ItemDataRole.ToolTipRole and r.status == "CANCELADO":
             return f"Cancelado: {r.cancelamento_motivo}"
         return None
@@ -555,9 +637,14 @@ class TelaRecibos(QWidget):
         self.equipe = QComboBox()
         self.equipe.setMinimumWidth(160)
         self.ver_cancelados = QCheckBox("Mostrar cancelados")
+        self.categoria = QComboBox()
+        self.categoria.addItem("Todas as categorias", None)
+        for codigo, nome in CATEGORIAS.items():
+            self.categoria.addItem(nome, codigo)
         filtros.addWidget(self.busca, 1)
         filtros.addWidget(self.status)
         filtros.addWidget(self.equipe)
+        filtros.addWidget(self.categoria)
         filtros.addWidget(self.ver_cancelados)
         layout.addLayout(filtros)
 
@@ -601,6 +688,7 @@ class TelaRecibos(QWidget):
         self.status.currentIndexChanged.connect(self.atualizar)
         self.equipe.currentIndexChanged.connect(self.atualizar)
         self.ver_cancelados.toggled.connect(self.atualizar)
+        self.categoria.currentIndexChanged.connect(self.atualizar)
         self.tabela.selectionModel().selectionChanged.connect(self._ajustar_botoes)
         self.tabela.doubleClicked.connect(self._editar)
         self.tabela.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -626,7 +714,8 @@ class TelaRecibos(QWidget):
     def atualizar(self) -> None:
         self._recarregar_equipes()
         itens = recibos.listar(self.con, status=self.status.currentData(),
-                               equipe=self.equipe.currentData(), busca=self.busca.text())
+                               equipe=self.equipe.currentData(), busca=self.busca.text(),
+                               categoria=self.categoria.currentData())
         if not self.ver_cancelados.isChecked() and self.status.currentData() != "CANCELADO":
             itens = [r for r in itens if r.status != "CANCELADO"]
         self.modelo.definir(itens)
@@ -652,7 +741,7 @@ class TelaRecibos(QWidget):
         if not r:
             self.dica.setText("Selecione um recibo na lista para ver o que dá para fazer com ele.")
             return
-        cor = CORES_STATUS.get(r.status, tema.TEXTO)
+        cor = cor_status(r.status)
         self.dica.setText(f"<b style='color:{cor}'>{STATUS[r.status]}</b> — {EXPLICACAO_STATUS[r.status]}")
         pode, _ = recibos.pode_cancelar(r)
         self.bt_editar.setText("Corrigir…" if r.status == "ENVIADO" else "Editar / corrigir")

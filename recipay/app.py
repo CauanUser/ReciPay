@@ -9,14 +9,15 @@ from PySide6.QtWidgets import QApplication, QDialog
 from recipay import config, contas
 from recipay.ui.dialogos import DialogoLogin
 from recipay.ui.janela_principal import JanelaPrincipal
-from recipay.ui.tema import ESTILO
+from recipay.ui import tema
 
 
 def main() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName("Recipay")
     app.setStyle("Fusion")
-    app.setStyleSheet(ESTILO)
+    tema.carregar_preferencias()
+    tema.aplicar(app)
     icone = config.caminho_recurso("recipay.png")
     if icone.is_file():
         app.setWindowIcon(QIcon(str(icone)))
@@ -42,11 +43,30 @@ def main() -> int:
             return
         estado["con"] = login.con
         config.limpar_temporarios()
-        janela = JanelaPrincipal(login.con, login.usuario)
+        abrir_janela(login.con, login.usuario)
+
+    def abrir_janela(con, usuario, tela: str | None = None) -> None:
+        janela = JanelaPrincipal(con, usuario)
         janela.sair.connect(abrir_login)
         janela.fechada.connect(app.quit)
+        janela.recriar.connect(lambda titulo: recriar(con, usuario, titulo))
+        if tela:
+            janela.ir_para(tela)
+        anterior = estado["janela"]
         estado["janela"] = janela
-        janela.show()
+        if anterior is not None and anterior.isVisible():
+            janela.setGeometry(anterior.geometry())
+            if anterior.isMaximized():
+                janela.showMaximized()
+            else:
+                janela.show()
+            anterior.fechar_sem_sair()
+        else:
+            janela.show()
+
+    def recriar(con, usuario, titulo: str) -> None:
+        # Recria a janela com as novas cores/letra, na mesma tela.
+        QTimer.singleShot(0, lambda: abrir_janela(con, usuario, titulo))
 
     QTimer.singleShot(0, abrir_login)
     codigo = app.exec()
