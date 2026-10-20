@@ -22,6 +22,7 @@ class Conta:
     usuario_id: str
     nome: str
     perfil: str
+    matricula: str | None = None
 
     @property
     def perfil_nome(self) -> str:
@@ -54,12 +55,14 @@ def _ler_conta(pasta: Path) -> Conta | None:
     try:
         con = sqlite3.connect(banco)
         try:
-            l = con.execute("SELECT id, nome, perfil FROM usuario WHERE local = 1").fetchone()
+            colunas = {c[1] for c in con.execute("PRAGMA table_info(usuario)")}
+            campo = "matricula" if "matricula" in colunas else "NULL"
+            l = con.execute(f"SELECT id, nome, perfil, {campo} FROM usuario WHERE local = 1").fetchone()
         finally:
             con.close()
     except sqlite3.Error:
         return None
-    return Conta(pasta, l[0], l[1], l[2]) if l else None
+    return Conta(pasta, l[0], l[1], l[2], l[3]) if l else None
 
 
 def listar() -> list[Conta]:

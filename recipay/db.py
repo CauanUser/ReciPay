@@ -12,7 +12,7 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
-VERSAO_SCHEMA = 2
+VERSAO_SCHEMA = 3
 
 SCHEMA_V1 = """
 CREATE TABLE usuario (
@@ -166,6 +166,13 @@ ALTER TABLE recibo ADD COLUMN cancelamento_enviado_lote TEXT;
 """
 
 
+# v3: matrícula do usuário e código de recuperação de senha (Cosampa@<matrícula>).
+SCHEMA_V3 = """
+ALTER TABLE usuario ADD COLUMN matricula TEXT;
+ALTER TABLE usuario ADD COLUMN recuperacao_hash TEXT;
+"""
+
+
 def _migrar(con: sqlite3.Connection) -> None:
     versao = con.execute("PRAGMA user_version").fetchone()[0]
     if versao < 1:
@@ -177,6 +184,11 @@ def _migrar(con: sqlite3.Connection) -> None:
         with con:
             con.executescript(SCHEMA_V2)
             con.execute("PRAGMA user_version = 2")
+        versao = 2
+    if versao < 3:
+        with con:
+            con.executescript(SCHEMA_V3)
+            con.execute("PRAGMA user_version = 3")
 
 
 def registrar_historico(
