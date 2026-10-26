@@ -27,7 +27,7 @@ data class LocalCollaborator(
     val pixHolder: String
 )
 
-class ReceiptDatabase(context: Context) : SQLiteOpenHelper(context, "recipay_supervisor.db", null, 4) {
+class ReceiptDatabase(context: Context) : SQLiteOpenHelper(context, "recipay_supervisor.db", null, 5) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
             """CREATE TABLE receipts (
@@ -43,6 +43,13 @@ class ReceiptDatabase(context: Context) : SQLiteOpenHelper(context, "recipay_sup
             )""".trimIndent()
         )
         createCollaboratorsTable(db)
+        createPaymentTables(db)
+    }
+
+    private fun createPaymentTables(db: SQLiteDatabase) {
+        db.execSQL("CREATE TABLE IF NOT EXISTS imported_transfers (transfer_id TEXT PRIMARY KEY, batch_id TEXT NOT NULL, manager_id TEXT NOT NULL, manager_name TEXT NOT NULL, payment_date TEXT NOT NULL, amount_cents INTEGER NOT NULL CHECK(amount_cents > 0), pix_key TEXT NOT NULL, pix_type TEXT NOT NULL, pix_holder TEXT NOT NULL, attachment_path TEXT NOT NULL, attachment_hash TEXT NOT NULL, imported_at INTEGER NOT NULL)")
+        db.execSQL("CREATE TABLE IF NOT EXISTS payment_applications (application_id TEXT PRIMARY KEY, transfer_id TEXT NOT NULL, receipt_external_id TEXT NOT NULL, amount_cents INTEGER NOT NULL CHECK(amount_cents > 0), FOREIGN KEY(transfer_id) REFERENCES imported_transfers(transfer_id))")
+        db.execSQL("CREATE TABLE IF NOT EXISTS import_history (id INTEGER PRIMARY KEY AUTOINCREMENT, batch_id TEXT NOT NULL, file_name TEXT NOT NULL, manager_name TEXT NOT NULL, imported_at INTEGER NOT NULL, new_transfers INTEGER NOT NULL, ignored_transfers INTEGER NOT NULL, total_cents INTEGER NOT NULL)")
     }
 
     private fun createCollaboratorsTable(db: SQLiteDatabase) {
@@ -104,6 +111,7 @@ class ReceiptDatabase(context: Context) : SQLiteOpenHelper(context, "recipay_sup
                 }
             }
         }
+        if (oldVersion < 5) createPaymentTables(db)
     }
 
     fun addCollaborator(name: String, team: String, pixType: String, pixKey: String, pixHolder: String): Long {
