@@ -11,7 +11,6 @@ import java.math.BigDecimal
 import java.math.RoundingMode
 import java.security.MessageDigest
 import java.util.zip.ZipInputStream
-import javax.xml.XMLConstants
 import javax.xml.parsers.DocumentBuilderFactory
 
 data class ReceiptPreviewItem(
@@ -50,8 +49,6 @@ object XlsxPreviewReader {
             try { factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true) } catch (_: Exception) {}
             try { factory.setFeature("http://xml.org/sax/features/external-general-entities", false) } catch (_: Exception) {}
             try { factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false) } catch (_: Exception) {}
-            try { factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "") } catch (_: Exception) {}
-            try { factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "") } catch (_: Exception) {}
             return factory.newDocumentBuilder().parse(ByteArrayInputStream(bytes))
         }
 
