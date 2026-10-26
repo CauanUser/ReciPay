@@ -1,0 +1,52 @@
+name: Android - build APK
+
+on:
+  push:
+    branches:
+      - "feat/android/**"
+      - "feat/**"
+      - main
+    paths:
+      - "android_app/**"
+      - ".github/workflows/android.yml"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "android_app/**"
+      - ".github/workflows/android.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  assemble:
+    name: Compilar APK de depuração
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Baixar código
+        uses: actions/checkout@v4
+
+      - name: Configurar Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Configurar Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      - name: Compilar APK
+        run: gradle -p android_app assembleDebug
+
+      - name: Guardar APK de depuração
+        uses: actions/upload-artifact@v4
+        with:
+          name: recipay-android-debug
+          path: android_app/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
