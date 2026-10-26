@@ -3,6 +3,7 @@ package br.com.recipay.android
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.Intent
+import androidx.core.content.FileProvider
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
@@ -33,6 +34,7 @@ class MainActivity : Activity() {
     private lateinit var photoButton: Button
     private lateinit var statusLabel: TextView
     private var selectedPhotoUri: Uri? = null
+    private var pendingCameraUri: Uri? = null
     private var currentScreen: String = "home"
 
     private val blue = Color.rgb(37, 99, 235)
@@ -188,8 +190,8 @@ class MainActivity : Activity() {
         form.addView(descriptionInput, fieldParams())
         form.addView(fieldLabel("Data da despesa"))
         form.addView(dateInput, fieldParams())
-        photoButton = actionButton("Anexar foto do comprovante")
-        photoButton.setOnClickListener { openPhotoPicker() }
+        photoButton = actionButton("Tirar foto ou anexar comprovante")
+        photoButton.setOnClickListener { showPhotoOptions() }
         form.addView(photoButton, fieldParams())
         statusLabel = label("Obrigatório para salvar.", 13, muted, false).apply { setPadding(0, dp(3), 0, dp(10)) }
         form.addView(statusLabel)
@@ -381,13 +383,45 @@ class MainActivity : Activity() {
             descriptionInput.text.clear()
             dateInput.setText(java.time.LocalDate.now().toString())
             selectedPhotoUri = null
-            photoButton.text = "Anexar foto do comprovante"
+            photoButton.text = "Tirar foto ou anexar comprovante"
             statusLabel.text = "Comprovante obrigatório."
             statusLabel.setTextColor(muted)
             toast("Despesa salva neste celular.")
             showScreen("receipts")
         } catch (error: Exception) {
             toast(error.message ?: "Não foi possível salvar a despesa.")
+        }
+    }
+
+    private fun showPhotoOptions() {
+        AlertDialog.Builder(this)
+            .setTitle("Adicionar comprovante")
+            .setItems(arrayOf("📷 Tirar foto agora", "🖼️ Escolher da galeria")) { _, which ->
+                if (which == 0) takeReceiptPhoto() else openPhotoPicker()
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+
+    private fun takeReceiptPhoto() {
+        try {
+            val photoFile = File(cacheDir, "recibo_${System.currentTimeMillis()}.jpg")
+            pendingCameraUri = FileProvider.getUriForFile(
+                this, "$packageName.fileprovider", photoFile
+            )
+            val intent = Intent(android.provider.MediaStore.ACTION_IMAGE_CAPTURE).apply {
+                putExtra(android.provider.MediaStore.EXTRA_OUTPUT, pendingCameraUri)
+                addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            if (intent.resolveActivity(packageManager) == null) {
+                pendingCameraUri = null
+                toast("Nenhum aplicativo de câmera foi encontrado.")
+                return
+            }
+            startActivityForResult(intent, REQUEST_CAMERA)
+        } catch (error: Exception) {
+            pendingCameraUri = null
+            toast(error.message ?: "Não foi possível abrir a câmera.")
         }
     }
 
@@ -424,7 +458,23 @@ class MainActivity : Activity() {
     @Deprecated("Kept compatible with the minimal native prototype.")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (resultCode != Activity.RESULT_OK || data?.data == null) return
+        if (resultCode != Activity.RESULT_OK) {
+            if (requestCode == REQUEST_CAMERA) pendingCameraUri = null
+            return
+        }
+        if (requestCode == REQUEST_CAMERA) {
+            selectedPhotoUri = pendingCameraUri
+            pendingCameraUri = null
+            if (selectedPhotoUri != null) {
+                photoButton.text = "Foto do recibo selecionada ✓"
+                statusLabel.text = "Foto capturada. Ela será salva junto à despesa."
+                statusLabel.setTextColor(green)
+            } else {
+                toast("Não foi possível obter a foto. Tente novamente.")
+            }
+            return
+        }
+        if (data?.data == null) return
         if (requestCode == REQUEST_EXPORT) {
             try {
                 contentResolver.openOutputStream(data.data!!).use { output ->
@@ -636,6 +686,7 @@ class MainActivity : Activity() {
 
     companion object {
         private const val REQUEST_PHOTO = 1043
+        private const val REQUEST_CAMERA = 1046
         private const val REQUEST_EXPORT = 1044
         private const val REQUEST_RETURN = 1045
         private const val SUPERVISOR_ID = "00000000-0000-4000-8000-000000000001"
