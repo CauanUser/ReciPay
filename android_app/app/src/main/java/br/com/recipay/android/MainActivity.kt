@@ -222,7 +222,7 @@ class MainActivity : Activity() {
     private fun field(hintText: String): EditText = EditText(this).apply {
         hint = hintText
         textSize = 15f
-        singleLine = true
+        setSingleLine(true)
         setTextColor(ink)
         setHintTextColor(muted)
         setPadding(dp(12), dp(8), dp(12), dp(8))
