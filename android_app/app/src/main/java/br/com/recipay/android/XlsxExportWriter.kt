@@ -37,7 +37,7 @@ object XlsxExportWriter {
         val colabJson = JSONArray()
         selectedCollaborators.forEach { c ->
             colabJson.put(JSONObject().put("id", c.externalId).put("nome", c.name).put("equipe", c.team)
-                .put("chave_pix", c.pixKey).put("tipo_chave", c.pixType).put("titular_pix", c.pixHolder))
+                .put("chave_pix", c.pixKey).put("tipo_chave", c.pixType).put("titular_pix", c.pixHolder).put("funcao", c.role))
         }
         val receiptJson = JSONArray()
         sorted.forEach { r ->
@@ -74,7 +74,7 @@ object XlsxExportWriter {
             receiptRows += listOf(reference(r.externalId), r.expenseDate, c.name, c.team, r.description, r.amountCents / 100.0, "OUTROS")
         }
         val collaboratorRows = mutableListOf<List<Any?>>()
-        collaboratorRows += listOf("Nome", "Equipe", "Tipo da chave", "Chave Pix", "Titular")
+        collaboratorRows += listOf("Nome", "Equipe", "Função", "Tipo da chave", "Chave Pix", "Titular")
         selectedCollaborators.forEach { c ->
             val label = when (c.pixType) {
                 "EMAIL" -> "E-mail"
@@ -82,7 +82,7 @@ object XlsxExportWriter {
                 "ALEATORIA" -> "Chave aleatória"
                 else -> c.pixType
             }
-            collaboratorRows += listOf(c.name, c.team, label, c.pixKey, c.pixHolder)
+            collaboratorRows += listOf(c.name, c.team, c.role, label, c.pixKey, c.pixHolder)
         }
         val proofRows = mutableListOf<List<Any?>>()
         proofRows += listOf("Ref", "Colaborador", "Valor (R$)", "Comprovante")
