@@ -210,6 +210,32 @@ class ReceiptDatabase(context: Context) : SQLiteOpenHelper(context, "recipay_sup
     }
 
 
+    /** Atualiza despesas apenas enquanto não houver pagamentos vinculados. O ID externo é preservado. */
+    fun updateReceipt(
+        id: Long, collaboratorId: Long, collaborator: String, amountCents: Long,
+        description: String, expenseDate: String
+    ) {
+        require(amountCents > 0L) { "O valor deve ser maior que zero." }
+        require(collaborator.isNotBlank() && description.isNotBlank()) { "Preencha colaborador e descrição." }
+        val receipt = listReceipts().firstOrNull { it.id == id } ?: error("Despesa não encontrada.")
+        val applications = readableDatabase.rawQuery(
+            "SELECT COUNT(*) FROM payment_applications WHERE receipt_external_id = ?",
+            arrayOf(receipt.externalId)
+        ).use { cursor -> cursor.moveToFirst(); cursor.getLong(0) }
+        require(applications == 0L) {
+            "Esta despesa já possui pagamentos vinculados. Para preservar o histórico, seus dados não podem ser alterados."
+        }
+        val values = ContentValues().apply {
+            put("collaborator_id", collaboratorId)
+            put("collaborator", collaborator.trim())
+            put("amount_cents", amountCents)
+            put("description", description.trim())
+            put("expense_date", expenseDate)
+        }
+        val changed = writableDatabase.update("receipts", values, "id = ?", arrayOf(id.toString()))
+        require(changed == 1) { "Não foi possível atualizar a despesa." }
+    }
+
     /** Remove somente despesas sem pagamentos vinculados. O histórico financeiro é preservado. */
     fun deleteReceipt(id: Long) {
         val receipt = listReceipts().firstOrNull { it.id == id } ?: error("Despesa não encontrada.")

@@ -433,6 +433,84 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun openReceiptEditDialog(receipt: LocalReceipt) {
+        val collaborators = database.listCollaborators()
+        if (collaborators.isEmpty()) {
+            toast("Cadastre um colaborador antes de editar a despesa.")
+            return
+        }
+        val form = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(8), dp(20), dp(4))
+        }
+        val personSpinner = Spinner(this)
+        personSpinner.adapter = ArrayAdapter(
+            this, android.R.layout.simple_spinner_dropdown_item, collaborators.map { it.name }
+        )
+        val currentIndex = collaborators.indexOfFirst { it.id == receipt.collaboratorId }
+        if (currentIndex >= 0) personSpinner.setSelection(currentIndex)
+        val amount = field("Ex.: 250,99").apply {
+            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
+            setText(NumberFormat.getNumberInstance(Locale("pt", "BR")).format(receipt.amountCents / 100.0))
+        }
+        val description = field("Descrição").apply { setText(receipt.description) }
+        val date = field("AAAA-MM-DD").apply { setText(receipt.expenseDate) }
+        form.addView(fieldLabel("Colaborador"))
+        form.addView(personSpinner, fieldParams())
+        form.addView(fieldLabel("Valor (R$)"))
+        form.addView(amount, fieldParams())
+        form.addView(fieldLabel("Descrição"))
+        form.addView(description, fieldParams())
+        form.addView(fieldLabel("Data da despesa"))
+        form.addView(date, fieldParams())
+        form.addView(label("O comprovante atual será mantido. Despesas com pagamentos vinculados não podem ser editadas.", 12, muted, false).apply {
+            setPadding(0, dp(8), 0, 0)
+        })
+        AlertDialog.Builder(this)
+            .setTitle("Editar despesa")
+            .setView(form)
+            .setNegativeButton("Cancelar", null)
+            .setPositiveButton("Salvar alterações") { _, _ ->
+                val selected = collaborators.getOrNull(personSpinner.selectedItemPosition)
+                val rawAmount = amount.text.toString().trim()
+                val normalized = when {
+                    rawAmount.contains(",") -> rawAmount.replace(".", "").replace(",", ".")
+                    rawAmount.count { it == '.' } == 1 && rawAmount.substringAfterLast('.').length in 1..2 -> rawAmount
+                    else -> rawAmount.replace(".", "")
+                }
+                val cents = try {
+                    java.math.BigDecimal(normalized).movePointRight(2)
+                        .setScale(0, java.math.RoundingMode.HALF_UP).longValueExact()
+                        .also { require(it > 0L) }
+                } catch (_: Exception) {
+                    toast("Informe um valor válido, maior que zero.")
+                    return@setPositiveButton
+                }
+                val expenseDate = date.text.toString().trim()
+                try {
+                    java.time.LocalDate.parse(expenseDate)
+                } catch (_: Exception) {
+                    toast("Use a data no formato AAAA-MM-DD.")
+                    return@setPositiveButton
+                }
+                if (selected == null || description.text.toString().trim().isBlank()) {
+                    toast("Selecione um colaborador e preencha a descrição.")
+                    return@setPositiveButton
+                }
+                try {
+                    database.updateReceipt(
+                        receipt.id, selected.id, selected.name, cents,
+                        description.text.toString().trim(), expenseDate
+                    )
+                    toast("Despesa atualizada. O comprovante foi mantido.")
+                    showScreen("receipts")
+                } catch (error: Exception) {
+                    toast(error.message ?: "Não foi possível atualizar a despesa.")
+                }
+            }
+            .show()
+    }
+
     private fun showPhotoOptions() {
         AlertDialog.Builder(this)
             .setTitle("Adicionar comprovante")
@@ -639,6 +717,21 @@ class MainActivity : Activity() {
                 }
                 item.addView(label("Status: ${payment.status}", 13, statusColor, true).apply { setPadding(0, dp(6), 0, 0) })
                 item.addView(label("Pago: ${money(payment.paidCents)}  ·  Saldo: ${money(payment.balanceCents)}", 12, muted, false).apply { setPadding(0, dp(3), 0, dp(12)) })
+                if (payment.paidCents == 0L) {
+                    val edit = actionButton("Editar despesa")
+                    edit.background = GradientDrawable().apply {
+                        setColor(Color.rgb(239, 246, 255))
+                        cornerRadius = dp(10).toFloat()
+                        setStroke(dp(1), Color.rgb(191, 219, 254))
+                    }
+                    edit.setTextColor(blue)
+                    edit.setOnClickListener { openReceiptEditDialog(receipt) }
+                    item.addView(edit, matchWrap())
+                } else {
+                    item.addView(label("Edição bloqueada após pagamentos para proteger o histórico.", 12, muted, false).apply {
+                        setPadding(0, 0, 0, dp(8))
+                    })
+                }
                 val delete = actionButton("Excluir despesa")
                 delete.background = GradientDrawable().apply {
                     setColor(Color.rgb(254, 242, 242))
