@@ -15,7 +15,16 @@ data class LocalReceipt(
     val createdAt: Long
 )
 
-class ReceiptDatabase(context: Context) : SQLiteOpenHelper(context, "recipay_supervisor.db", null, 1) {
+data class LocalCollaborator(
+    val id: Long,
+    val name: String,
+    val team: String,
+    val pixType: String,
+    val pixKey: String,
+    val pixHolder: String
+)
+
+class ReceiptDatabase(context: Context) : SQLiteOpenHelper(context, "recipay_supervisor.db", null, 2) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
             """CREATE TABLE receipts (
@@ -28,10 +37,54 @@ class ReceiptDatabase(context: Context) : SQLiteOpenHelper(context, "recipay_sup
                 created_at INTEGER NOT NULL
             )""".trimIndent()
         )
+        createCollaboratorsTable(db)
+    }
+
+    private fun createCollaboratorsTable(db: SQLiteDatabase) {
+        db.execSQL(
+            """CREATE TABLE IF NOT EXISTS collaborators (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+                team TEXT NOT NULL DEFAULT '',
+                pix_type TEXT NOT NULL,
+                pix_key TEXT NOT NULL,
+                pix_holder TEXT NOT NULL,
+                created_at INTEGER NOT NULL
+            )""".trimIndent()
+        )
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        // Future schema migrations must be explicit; never discard supervisor data.
+        if (oldVersion < 2) createCollaboratorsTable(db)
+    }
+
+    fun addCollaborator(name: String, team: String, pixType: String, pixKey: String, pixHolder: String): Long {
+        val values = ContentValues().apply {
+            put("name", name.trim())
+            put("team", team.trim())
+            put("pix_type", pixType)
+            put("pix_key", pixKey.trim())
+            put("pix_holder", pixHolder.trim())
+            put("created_at", System.currentTimeMillis())
+        }
+        return writableDatabase.insertOrThrow("collaborators", null, values)
+    }
+
+    fun listCollaborators(): List<LocalCollaborator> {
+        val result = mutableListOf<LocalCollaborator>()
+        readableDatabase.query(
+            "collaborators",
+            arrayOf("id", "name", "team", "pix_type", "pix_key", "pix_holder"),
+            null, null, null, null, "name COLLATE NOCASE ASC"
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                result += LocalCollaborator(
+                    cursor.getLong(0), cursor.getString(1), cursor.getString(2),
+                    cursor.getString(3), cursor.getString(4), cursor.getString(5)
+                )
+            }
+        }
+        return result
     }
 
     fun addReceipt(
