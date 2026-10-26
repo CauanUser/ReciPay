@@ -4,6 +4,7 @@ import android.content.ContentValues
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
+import java.io.File
 
 data class LocalReceipt(
     val id: Long,
@@ -24,10 +25,11 @@ data class LocalCollaborator(
     val team: String,
     val pixType: String,
     val pixKey: String,
-    val pixHolder: String
+    val pixHolder: String,
+    val role: String
 )
 
-class ReceiptDatabase(context: Context) : SQLiteOpenHelper(context, "recipay_supervisor.db", null, 5) {
+class ReceiptDatabase(context: Context) : SQLiteOpenHelper(context, "recipay_supervisor.db", null, 6) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
             """CREATE TABLE receipts (
@@ -62,6 +64,7 @@ class ReceiptDatabase(context: Context) : SQLiteOpenHelper(context, "recipay_sup
                 pix_type TEXT NOT NULL,
                 pix_key TEXT NOT NULL,
                 pix_holder TEXT NOT NULL,
+                role TEXT NOT NULL DEFAULT 'Funcionário',
                 created_at INTEGER NOT NULL
             )""".trimIndent()
         )
@@ -112,9 +115,10 @@ class ReceiptDatabase(context: Context) : SQLiteOpenHelper(context, "recipay_sup
             }
         }
         if (oldVersion < 5) createPaymentTables(db)
+        if (oldVersion < 6) db.execSQL("ALTER TABLE collaborators ADD COLUMN role TEXT NOT NULL DEFAULT 'Funcionário'")
     }
 
-    fun addCollaborator(name: String, team: String, pixType: String, pixKey: String, pixHolder: String): Long {
+    fun addCollaborator(name: String, team: String, role: String, pixType: String, pixKey: String, pixHolder: String): Long {
         val values = ContentValues().apply {
             put("external_id", java.util.UUID.randomUUID().toString())
             put("name", name.trim())
@@ -122,22 +126,47 @@ class ReceiptDatabase(context: Context) : SQLiteOpenHelper(context, "recipay_sup
             put("pix_type", pixType)
             put("pix_key", pixKey.trim())
             put("pix_holder", pixHolder.trim())
+            put("role", role.trim().ifBlank { "Funcionário" })
             put("created_at", System.currentTimeMillis())
         }
         return writableDatabase.insertOrThrow("collaborators", null, values)
+    }
+
+
+    fun updateCollaborator(
+        id: Long, name: String, team: String, role: String,
+        pixType: String, pixKey: String, pixHolder: String
+    ) {
+        val values = ContentValues().apply {
+            put("name", name.trim())
+            put("team", team.trim())
+            put("role", role.trim().ifBlank { "Funcionário" })
+            put("pix_type", pixType)
+            put("pix_key", pixKey.trim())
+            put("pix_holder", pixHolder.trim())
+        }
+        require(name.trim().isNotBlank() && pixKey.trim().isNotBlank() && pixHolder.trim().isNotBlank()) {
+            "Preencha nome, chave Pix e titular."
+        }
+        val changed = writableDatabase.update("collaborators", values, "id = ?", arrayOf(id.toString()))
+        require(changed == 1) { "Colaborador não encontrado." }
+        writableDatabase.execSQL(
+            "UPDATE receipts SET collaborator = ? WHERE collaborator_id = ?",
+            arrayOf(name.trim(), id)
+        )
     }
 
     fun listCollaborators(): List<LocalCollaborator> {
         val result = mutableListOf<LocalCollaborator>()
         readableDatabase.query(
             "collaborators",
-            arrayOf("id", "external_id", "name", "team", "pix_type", "pix_key", "pix_holder"),
+            arrayOf("id", "external_id", "name", "team", "pix_type", "pix_key", "pix_holder", "role"),
             null, null, null, null, "name COLLATE NOCASE ASC"
         ).use { cursor ->
             while (cursor.moveToNext()) {
                 result += LocalCollaborator(
                     cursor.getLong(0), cursor.getString(1), cursor.getString(2), cursor.getString(3),
-                    cursor.getString(4), cursor.getString(5), cursor.getString(6)
+                    cursor.getString(4), cursor.getString(5), cursor.getString(6), cursor.getString(7)
                 )
             }
         }
@@ -163,6 +192,19 @@ class ReceiptDatabase(context: Context) : SQLiteOpenHelper(context, "recipay_sup
             put("created_at", System.currentTimeMillis())
         }
         return writableDatabase.insertOrThrow("receipts", null, values)
+    }
+
+
+    /** Remove somente despesas sem pagamentos vinculados. O histórico financeiro é preservado. */
+    fun deleteReceipt(id: Long) {
+        val receipt = listReceipts().firstOrNull { it.id == id } ?: error("Despesa não encontrada.")
+        val paid = readableDatabase.rawQuery(
+            "SELECT COALESCE(SUM(amount_cents), 0) FROM payment_applications WHERE receipt_external_id = ?",
+            arrayOf(receipt.externalId)
+        ).use { cursor -> cursor.moveToFirst(); cursor.getLong(0) }
+        require(paid == 0L) { "Esta despesa já tem pagamentos vinculados. Não é seguro excluí-la." }
+        writableDatabase.delete("receipts", "id = ?", arrayOf(id.toString()))
+        File(receipt.attachmentPath).delete()
     }
 
     fun listReceipts(): List<LocalReceipt> {
