@@ -112,6 +112,10 @@ class MainActivity : Activity() {
         collaboratorButton.setOnClickListener { openCollaboratorDialog() }
         content.addView(collaboratorButton, spaced())
 
+        val exportButton = actionButton("Exportar para o Gestor (.xlsx)")
+        exportButton.setOnClickListener { exportReceipts() }
+        content.addView(exportButton, spaced())
+
         content.addView(label("Despesas salvas neste celular", 20, ink, true).apply {
             setPadding(dp(2), dp(8), 0, dp(10))
         })
@@ -229,11 +233,38 @@ class MainActivity : Activity() {
         startActivityForResult(intent, REQUEST_PHOTO)
     }
 
+    private fun exportReceipts() {
+        if (database.listReceipts().isEmpty()) {
+            toast("Cadastre pelo menos uma despesa antes de exportar.")
+            return
+        }
+        val filename = "recipay_supervisor_${java.time.LocalDate.now()}.xlsx"
+        val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            putExtra(Intent.EXTRA_TITLE, filename)
+        }
+        startActivityForResult(intent, REQUEST_EXPORT)
+    }
+
     @Deprecated("Kept compatible with the minimal native prototype.")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode != REQUEST_PHOTO || resultCode != Activity.RESULT_OK) return
-        selectedPhotoUri = data?.data
+        if (resultCode != Activity.RESULT_OK || data?.data == null) return
+        if (requestCode == REQUEST_EXPORT) {
+            try {
+                contentResolver.openOutputStream(data.data!!).use { output ->
+                    if (output == null) error("Não foi possível criar a planilha.")
+                    XlsxExportWriter.write(output, database.listReceipts(), database.listCollaborators())
+                }
+                toast("Planilha criada. Envie o arquivo ao Gestor para importar no Recipay.")
+            } catch (error: Exception) {
+                toast(error.message ?: "Não foi possível exportar as despesas.")
+            }
+            return
+        }
+        if (requestCode != REQUEST_PHOTO) return
+        selectedPhotoUri = data.data
         if (selectedPhotoUri != null) {
             photoButton.text = "Comprovante selecionado ✓"
             statusLabel.text = "Imagem selecionada. Ela será copiada para o armazenamento privado do app ao salvar."
@@ -364,5 +395,6 @@ class MainActivity : Activity() {
 
     companion object {
         private const val REQUEST_PHOTO = 1043
+        private const val REQUEST_EXPORT = 1044
     }
 }
