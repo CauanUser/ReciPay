@@ -130,7 +130,7 @@ class MainActivity : Activity() {
     }
 
     private fun renderPreview(preview: ReceiptPreview) {
-        content.removeViews(2, (content.childCount - 2).coerceAtLeast(0))
+        content.removeViews(4, (content.childCount - 4).coerceAtLeast(0))
         val status = card()
         status.addView(label("✓  Planilha validada", 17, green, true))
         status.addView(label(preview.fileName, 13, muted, false).apply { setPadding(0, dp(5), 0, 0) })
@@ -168,7 +168,7 @@ class MainActivity : Activity() {
         }
 
         val info = card()
-        info.setBackground(paleBlue)
+        info.setBackgroundColor(paleBlue)
         info.addView(label("Próxima etapa", 16, blue, true))
         info.addView(label("Esta é somente a prévia. A gravação segura, a prevenção de duplicidade e o retorno ao Windows serão implementados e testados antes de habilitar a importação real.", 14, ink, false).apply {
             setPadding(0, dp(7), 0, 0)
