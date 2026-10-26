@@ -33,6 +33,7 @@ class MainActivity : Activity() {
     private lateinit var photoButton: Button
     private lateinit var statusLabel: TextView
     private var selectedPhotoUri: Uri? = null
+    private var currentScreen: String = "home"
 
     private val blue = Color.rgb(30, 90, 168)
     private val ink = Color.rgb(30, 41, 59)
@@ -44,85 +45,216 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         database = ReceiptDatabase(this)
         renderHome()
-        renderReceipts()
     }
 
+    private lateinit var screenRoot: LinearLayout
+
     private fun renderHome() {
-        val root = LinearLayout(this).apply {
+        screenRoot = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Color.rgb(247, 249, 252))
         }
         val header = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(22), dp(24), dp(22), dp(22))
+            setPadding(dp(22), dp(18), dp(22), dp(16))
             setBackgroundColor(blue)
         }
-        header.addView(label("Recipay", 28, Color.WHITE, true))
-        header.addView(label("Controle de despesas do Supervisor", 14, Color.rgb(225, 237, 255), false).apply {
-            setPadding(0, dp(5), 0, 0)
+        header.addView(label("Recipay", 25, Color.WHITE, true))
+        header.addView(label("Controle de despesas", 14, Color.rgb(225, 237, 255), false).apply {
+            setPadding(0, dp(3), 0, 0)
         })
-        root.addView(header)
+        screenRoot.addView(header)
 
         val scroll = ScrollView(this)
         content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(18), dp(18), dp(18), dp(28))
+            setPadding(dp(18), dp(18), dp(18), dp(20))
         }
         scroll.addView(content)
-        root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
-        setContentView(root)
+        screenRoot.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
 
-        content.addView(label("Cadastrar despesa", 22, ink, true))
-        content.addView(label("Registre a despesa do colaborador e anexe uma foto ou imagem do comprovante. Os dados ficam salvos neste celular.", 14, muted, false).apply {
-            setPadding(0, dp(6), 0, dp(16))
+        val nav = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(dp(4), dp(7), dp(4), dp(7))
+            setBackgroundColor(Color.WHITE)
+            elevation = dp(8).toFloat()
+        }
+        listOf(
+            "home" to "Início",
+            "receipts" to "Despesas",
+            "people" to "Pessoas",
+            "files" to "Arquivos"
+        ).forEach { (key, title) ->
+            val button = TextView(this).apply {
+                text = title
+                textSize = 12f
+                gravity = Gravity.CENTER
+                setPadding(dp(2), dp(10), dp(2), dp(10))
+                setTypeface(typeface, Typeface.BOLD)
+                setTextColor(if (key == currentScreen) blue else muted)
+                setOnClickListener { showScreen(key) }
+            }
+            nav.addView(button, LinearLayout.LayoutParams(0, -2, 1f))
+        }
+        screenRoot.addView(nav)
+        setContentView(screenRoot)
+        showScreen("home")
+    }
+
+    private fun showScreen(screen: String) {
+        currentScreen = screen
+        content.removeAllViews()
+        when (screen) {
+            "home" -> renderDashboard()
+            "new" -> renderExpenseForm()
+            "receipts" -> renderReceipts()
+            "people" -> renderCollaborators()
+            "files" -> renderFiles()
+        }
+        // Rebuild the bottom navigation to reflect the selected destination.
+        val nav = screenRoot.getChildAt(2) as? LinearLayout ?: return
+        for (i in 0 until nav.childCount) {
+            val item = nav.getChildAt(i) as? TextView ?: continue
+            val key = listOf("home", "receipts", "people", "files").getOrNull(i)
+            item.setTextColor(if (key == screen || (screen == "new" && key == "receipts")) blue else muted)
+        }
+    }
+
+    private fun renderDashboard() {
+        val receipts = database.listReceipts()
+        val collaborators = database.listCollaborators()
+        val total = receipts.fold(0L) { sum, item -> Math.addExact(sum, item.amountCents) }
+        content.addView(label("Olá, Supervisor 👋", 24, ink, true))
+        content.addView(label("Aqui está o resumo das suas despesas.", 14, muted, false).apply {
+            setPadding(0, dp(5), 0, dp(18))
         })
+        val summary = card()
+        summary.addView(label("Total registrado", 14, muted, false))
+        summary.addView(label(money(total), 28, blue, true).apply { setPadding(0, dp(5), 0, dp(3)) })
+        summary.addView(label("${receipts.size} despesas  ·  ${collaborators.size} colaboradores", 13, muted, false))
+        content.addView(summary, spaced())
 
+        content.addView(label("Ações rápidas", 18, ink, true).apply { setPadding(0, dp(12), 0, dp(8)) })
+        val add = actionButton("+ Cadastrar despesa")
+        add.setOnClickListener { showScreen("new") }
+        content.addView(add, spaced())
+        val people = actionButton("Cadastrar colaborador")
+        people.setOnClickListener { showScreen("people"); openCollaboratorDialog() }
+        content.addView(people, spaced())
+        val export = actionButton("Preparar arquivo para o Gestor")
+        export.setOnClickListener { showScreen("files") }
+        content.addView(export, spaced())
+
+        content.addView(label("Atividade recente", 18, ink, true).apply { setPadding(0, dp(12), 0, dp(8)) })
+        if (receipts.isEmpty()) {
+            val empty = card()
+            empty.addView(label("Ainda não há despesas. Comece cadastrando sua primeira despesa.", 14, muted, false))
+            content.addView(empty, spaced())
+        } else {
+            receipts.take(3).forEach { receipt ->
+                val item = card()
+                item.addView(label(receipt.collaborator, 15, ink, true))
+                item.addView(label(money(receipt.amountCents), 19, blue, true).apply { setPadding(0, dp(4), 0, 0) })
+                item.addView(label("${receipt.description} · ${receipt.expenseDate}", 13, muted, false).apply { setPadding(0, dp(3), 0, 0) })
+                content.addView(item, spaced())
+            }
+            val all = actionButton("Ver todas as despesas")
+            all.setOnClickListener { showScreen("receipts") }
+            content.addView(all, spaced())
+        }
+    }
+
+    private fun renderExpenseForm() {
+        content.addView(label("Nova despesa", 23, ink, true))
+        content.addView(label("Preencha os dados e anexe o comprovante. Os dados ficam salvos neste celular.", 14, muted, false).apply {
+            setPadding(0, dp(5), 0, dp(16))
+        })
         val form = card()
         collaboratorSpinner = Spinner(this)
         refreshCollaboratorSpinner()
-        amountInput = field("Valor (ex.: 125,50)").apply {
+        amountInput = field("Ex.: 125,50").apply {
             inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
         }
-        descriptionInput = field("Descrição da despesa")
-        dateInput = field("Data (AAAA-MM-DD)").apply {
-            setText(java.time.LocalDate.now().toString())
-        }
-        form.addView(fieldLabel("Colaborador cadastrado"))
+        descriptionInput = field("Ex.: transporte, alimentação")
+        dateInput = field("AAAA-MM-DD").apply { setText(java.time.LocalDate.now().toString()) }
+        form.addView(fieldLabel("Colaborador"))
         form.addView(collaboratorSpinner, fieldParams())
-        form.addView(fieldLabel("Valor em reais"))
+        form.addView(fieldLabel("Valor (R$)"))
         form.addView(amountInput, fieldParams())
         form.addView(fieldLabel("Descrição"))
         form.addView(descriptionInput, fieldParams())
         form.addView(fieldLabel("Data da despesa"))
         form.addView(dateInput, fieldParams())
-
         photoButton = actionButton("Anexar foto do comprovante")
         photoButton.setOnClickListener { openPhotoPicker() }
         form.addView(photoButton, fieldParams())
-        statusLabel = label("Comprovante obrigatório.", 13, muted, false)
-        statusLabel.setPadding(0, dp(2), 0, dp(10))
+        statusLabel = label("Obrigatório para salvar.", 13, muted, false).apply { setPadding(0, dp(3), 0, dp(10)) }
         form.addView(statusLabel)
-
-        val saveButton = actionButton("Salvar despesa")
-        saveButton.setOnClickListener { saveReceipt() }
-        form.addView(saveButton, matchWrap())
+        val save = actionButton("Salvar despesa")
+        save.setOnClickListener { saveReceipt() }
+        form.addView(save, matchWrap())
         content.addView(form, spaced())
+        if (collaboratorOptions.isEmpty()) {
+            val addPerson = actionButton("Cadastrar colaborador primeiro")
+            addPerson.setOnClickListener { showScreen("people"); openCollaboratorDialog() }
+            content.addView(addPerson, spaced())
+        }
+        val cancel = actionButton("Cancelar")
+        cancel.setOnClickListener { showScreen("receipts") }
+        content.addView(cancel, spaced())
+    }
 
-        val collaboratorButton = actionButton("Cadastrar colaborador e chave Pix")
-        collaboratorButton.setOnClickListener { openCollaboratorDialog() }
-        content.addView(collaboratorButton, spaced())
-
-        val exportButton = actionButton("Exportar para o Gestor (.xlsx)")
-        exportButton.setOnClickListener { exportReceipts() }
-        content.addView(exportButton, spaced())
-
-        val importReturnButton = actionButton("Importar retorno do Gestor (.xlsx)")
-        importReturnButton.setOnClickListener { choosePaymentReturn() }
-        content.addView(importReturnButton, spaced())
-
-        content.addView(label("Despesas salvas neste celular", 20, ink, true).apply {
-            setPadding(dp(2), dp(8), 0, dp(10))
+    private fun renderCollaborators() {
+        val collaborators = database.listCollaborators()
+        content.addView(label("Pessoas", 23, ink, true))
+        content.addView(label("Colaboradores e suas chaves Pix cadastradas.", 14, muted, false).apply {
+            setPadding(0, dp(5), 0, dp(15))
         })
+        val add = actionButton("+ Cadastrar colaborador")
+        add.setOnClickListener { openCollaboratorDialog() }
+        content.addView(add, spaced())
+        if (collaborators.isEmpty()) {
+            val empty = card()
+            empty.addView(label("Nenhum colaborador cadastrado.", 15, ink, true))
+            empty.addView(label("Cadastre o colaborador e confirme os dados da chave Pix antes de registrar despesas.", 13, muted, false).apply { setPadding(0, dp(5), 0, 0) })
+            content.addView(empty, spaced())
+            return
+        }
+        collaborators.forEach { person ->
+            val item = card()
+            item.addView(label(person.name, 16, ink, true))
+            if (person.team.isNotBlank()) item.addView(label("Equipe: ${person.team}", 13, muted, false).apply { setPadding(0, dp(3), 0, 0) })
+            item.addView(label("${person.pixType}: ${person.pixKey}", 14, blue, true).apply { setPadding(0, dp(6), 0, 0) })
+            item.addView(label("Titular: ${person.pixHolder}", 13, muted, false).apply { setPadding(0, dp(3), 0, 0) })
+            content.addView(item, spaced())
+        }
+    }
+
+    private fun renderFiles() {
+        content.addView(label("Arquivos e retornos", 23, ink, true))
+        content.addView(label("Troque planilhas com o Gestor Windows por aqui.", 14, muted, false).apply {
+            setPadding(0, dp(5), 0, dp(16))
+        })
+        val exportCard = card()
+        exportCard.addView(label("1. Enviar despesas ao Gestor", 17, ink, true))
+        exportCard.addView(label("Gera uma planilha com despesas, colaboradores e comprovantes para o Gestor importar no computador.", 13, muted, false).apply { setPadding(0, dp(5), 0, dp(12)) })
+        val export = actionButton("Exportar planilha (.xlsx)")
+        export.setOnClickListener { exportReceipts() }
+        exportCard.addView(export, matchWrap())
+        content.addView(exportCard, spaced())
+
+        val importCard = card()
+        importCard.addView(label("2. Receber retorno do Gestor", 17, ink, true))
+        importCard.addView(label("Importa o arquivo de retorno, valida os comprovantes e atualiza os saldos após sua confirmação.", 13, muted, false).apply { setPadding(0, dp(5), 0, dp(12)) })
+        val import = actionButton("Importar retorno (.xlsx)")
+        import.setOnClickListener { choosePaymentReturn() }
+        importCard.addView(import, matchWrap())
+        content.addView(importCard, spaced())
+
+        val note = card()
+        note.addView(label("Dica", 14, blue, true))
+        note.addView(label("Envie ao Gestor somente a planilha exportada pelo ReciPay. Depois, importe o arquivo de retorno que ele gerar.", 13, muted, false).apply { setPadding(0, dp(4), 0, 0) })
+        content.addView(note, spaced())
     }
 
     private fun openCollaboratorDialog() {
@@ -166,7 +298,7 @@ class MainActivity : Activity() {
                         pixKey, pixHolder
                     )
                     toast("Colaborador cadastrado neste celular.")
-                    renderReceipts()
+                    showScreen("people")
                 } catch (_: android.database.sqlite.SQLiteConstraintException) {
                     toast("Já existe um colaborador com esse nome.")
                 } catch (error: Exception) {
@@ -223,7 +355,7 @@ class MainActivity : Activity() {
             statusLabel.text = "Comprovante obrigatório."
             statusLabel.setTextColor(muted)
             toast("Despesa salva neste celular.")
-            renderReceipts()
+            showScreen("receipts")
         } catch (error: Exception) {
             toast(error.message ?: "Não foi possível salvar a despesa.")
         }
@@ -291,7 +423,7 @@ class MainActivity : Activity() {
                         try {
                             val result = database.importPaymentReturn(preview, File(filesDir, "payment_proofs"))
                             toast("Retorno processado: ${result.importedTransfers} novo(s), ${result.ignoredTransfers} repetido(s).")
-                            renderReceipts()
+                            showScreen("receipts")
                         } catch (error: Exception) {
                             toast(error.message ?: "Não foi possível importar o retorno.")
                         }
@@ -320,56 +452,44 @@ class MainActivity : Activity() {
     }
 
     private fun renderReceipts() {
-        if (!::content.isInitialized) return
-        // Keep the title and form, replacing only the list cards below them.
-        val listStart = 6
-        if (content.childCount > listStart) {
-            content.removeViews(listStart, content.childCount - listStart)
-        }
-        val collaborators = database.listCollaborators()
-        refreshCollaboratorSpinner()
-        content.addView(label("Colaboradores e chaves Pix", 20, ink, true).apply {
-            setPadding(dp(2), dp(8), 0, dp(10))
-        })
-        if (collaborators.isEmpty()) {
-            val empty = card()
-            empty.addView(label("Nenhum colaborador cadastrado ainda.", 14, muted, false))
-            content.addView(empty, spaced())
-        } else {
-            collaborators.forEach { collaborator ->
-                val item = card()
-                item.addView(label(collaborator.name, 16, ink, true))
-                if (collaborator.team.isNotBlank()) {
-                    item.addView(label("Equipe: ${collaborator.team}", 13, muted, false).apply { setPadding(0, dp(3), 0, 0) })
-                }
-                item.addView(label("${collaborator.pixType}: ${collaborator.pixKey}", 14, blue, true).apply { setPadding(0, dp(5), 0, 0) })
-                item.addView(label("Titular: ${collaborator.pixHolder}", 13, muted, false).apply { setPadding(0, dp(3), 0, 0) })
-                content.addView(item, spaced())
-            }
-        }
-
-        content.addView(label("Despesas", 20, ink, true).apply {
-            setPadding(dp(2), dp(8), 0, dp(10))
-        })
         val receipts = database.listReceipts()
+        content.addView(label("Despesas", 23, ink, true))
+        content.addView(label("Acompanhe os valores registrados e o andamento dos pagamentos.", 14, muted, false).apply {
+            setPadding(0, dp(5), 0, dp(15))
+        })
+        val add = actionButton("+ Nova despesa")
+        add.setOnClickListener { showScreen("new") }
+        content.addView(add, spaced())
+
+        val total = receipts.fold(0L) { sum, receipt -> Math.addExact(sum, receipt.amountCents) }
+        val summary = card()
+        summary.addView(label("Total registrado", 13, muted, false))
+        summary.addView(label(money(total), 23, blue, true).apply { setPadding(0, dp(3), 0, 0) })
+        summary.addView(label("${receipts.size} despesa(s)", 12, muted, false).apply { setPadding(0, dp(3), 0, 0) })
+        content.addView(summary, spaced())
+
         if (receipts.isEmpty()) {
             val empty = card()
-            empty.addView(label("Nenhuma despesa cadastrada ainda.", 14, muted, false))
+            empty.addView(label("Sua lista está vazia", 16, ink, true))
+            empty.addView(label("Quando cadastrar uma despesa, ela aparecerá aqui com o comprovante e o status do pagamento.", 13, muted, false).apply { setPadding(0, dp(5), 0, 0) })
             content.addView(empty, spaced())
             return
         }
         receipts.forEach { receipt ->
             val item = card()
+            val payment = database.paymentStatus(receipt.externalId)
             item.addView(label(receipt.collaborator, 16, ink, true))
-            item.addView(label(money(receipt.amountCents), 20, blue, true).apply {
-                setPadding(0, dp(5), 0, 0)
-            })
+            item.addView(label(money(receipt.amountCents), 21, blue, true).apply { setPadding(0, dp(5), 0, 0) })
             item.addView(label(receipt.description, 14, ink, false).apply { setPadding(0, dp(4), 0, 0) })
             item.addView(label("Data: ${receipt.expenseDate}", 12, muted, false).apply { setPadding(0, dp(5), 0, 0) })
-            item.addView(label("Comprovante anexado", 12, green, true).apply { setPadding(0, dp(5), 0, 0) })
-            val payment = database.paymentStatus(receipt.externalId)
-            item.addView(label("Status: ${payment.status}", 13, if (payment.status == "Pago") green else blue, true).apply { setPadding(0, dp(5), 0, 0) })
-            item.addView(label("Pago: ${money(payment.paidCents)} · Saldo: ${money(payment.balanceCents)}", 12, muted, false).apply { setPadding(0, dp(3), 0, 0) })
+            item.addView(label("Comprovante anexado ✓", 12, green, true).apply { setPadding(0, dp(5), 0, 0) })
+            val statusColor = when (payment.status.lowercase(Locale.ROOT)) {
+                "pago" -> green
+                "parcial" -> Color.rgb(180, 83, 9)
+                else -> blue
+            }
+            item.addView(label("Status: ${payment.status}", 13, statusColor, true).apply { setPadding(0, dp(6), 0, 0) })
+            item.addView(label("Pago: ${money(payment.paidCents)}  ·  Saldo: ${money(payment.balanceCents)}", 12, muted, false).apply { setPadding(0, dp(3), 0, 0) })
             content.addView(item, spaced())
         }
     }
