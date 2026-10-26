@@ -185,7 +185,7 @@ class MainActivity : Activity() {
     private fun renderReceipts() {
         if (!::content.isInitialized) return
         // Keep the title and form, replacing only the list cards below them.
-        val listStart = 3
+        val listStart = 4
         if (content.childCount > listStart) {
             content.removeViews(listStart, content.childCount - listStart)
         }
