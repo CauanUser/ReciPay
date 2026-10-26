@@ -547,7 +547,7 @@ class MainActivity : Activity() {
                 delete.setOnClickListener {
                     AlertDialog.Builder(this)
                         .setTitle("Excluir esta despesa?")
-                        .setMessage("“${receipt.description}” — ${money(receipt.amountCents)}\\n\\nEssa ação remove o registro e o comprovante deste celular. Se já enviou a planilha ao Gestor, apagar aqui não remove a cópia do computador. Despesas com pagamentos vinculados não podem ser excluídas.")
+                        .setMessage("“${receipt.description}” — ${money(receipt.amountCents)}\n\nEssa ação remove o registro e o comprovante deste celular. Se já enviou a planilha ao Gestor, apagar aqui não remove a cópia do computador. Despesas com pagamentos vinculados não podem ser excluídas.")
                         .setNegativeButton("Manter", null)
                         .setPositiveButton("Excluir") { _, _ ->
                             try {
