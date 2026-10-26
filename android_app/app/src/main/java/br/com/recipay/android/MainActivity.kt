@@ -779,9 +779,9 @@ class MainActivity : Activity() {
         orientation = LinearLayout.VERTICAL
         setPadding(dp(16), dp(16), dp(16), dp(16))
         background = GradientDrawable().apply {
-            setColor(Color.WHITE)
+            setColor(Color.rgb(23, 14, 43))
             cornerRadius = dp(18).toFloat()
-            setStroke(dp(1), Color.rgb(226, 232, 240))
+            setStroke(dp(1), Color.rgb(57, 39, 82))
         }
         elevation = dp(2).toFloat()
     }
@@ -794,9 +794,9 @@ class MainActivity : Activity() {
         setHintTextColor(muted)
         setPadding(dp(12), dp(8), dp(12), dp(8))
         background = GradientDrawable().apply {
-            setColor(Color.rgb(248, 250, 252))
+            setColor(Color.rgb(17, 10, 34))
             cornerRadius = dp(10).toFloat()
-            setStroke(dp(1), Color.rgb(203, 213, 225))
+            setStroke(dp(1), Color.rgb(73, 54, 101))
         }
     }
 
