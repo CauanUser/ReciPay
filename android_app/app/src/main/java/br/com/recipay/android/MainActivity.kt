@@ -33,6 +33,7 @@ class MainActivity : Activity() {
     private lateinit var photoButton: Button
     private lateinit var statusLabel: TextView
     private var selectedPhotoUri: Uri? = null
+    private var currentScreen: String = "home"
 
     private val blue = Color.rgb(30, 90, 168)
     private val ink = Color.rgb(30, 41, 59)
@@ -44,86 +45,170 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         database = ReceiptDatabase(this)
         renderHome()
-        renderReceipts()
     }
 
     private fun renderHome() {
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.rgb(247, 249, 252))
-        }
+        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(Color.rgb(247, 249, 252)) }
         val header = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(22), dp(24), dp(22), dp(22))
+            setPadding(dp(22), dp(18), dp(22), dp(18))
             setBackgroundColor(blue)
         }
-        header.addView(label("Recipay", 28, Color.WHITE, true))
-        header.addView(label("Controle de despesas do Supervisor", 14, Color.rgb(225, 237, 255), false).apply {
-            setPadding(0, dp(5), 0, 0)
-        })
+        header.addView(label("Recipay", 26, Color.WHITE, true))
+        header.addView(label("Área do Supervisor", 14, Color.rgb(225, 237, 255), false))
         root.addView(header)
-
         val scroll = ScrollView(this)
-        content = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(18), dp(18), dp(18), dp(28))
-        }
+        content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(18), dp(18), dp(22)) }
         scroll.addView(content)
         root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
+        val nav = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER
+            setPadding(dp(4), dp(6), dp(4), dp(6)); setBackgroundColor(Color.WHITE); elevation = dp(8).toFloat()
+        }
+        listOf("home" to "Início", "expenses" to "Despesas", "people" to "Pessoas", "exchange" to "Envios").forEach { (screen, title) ->
+            nav.addView(Button(this).apply {
+                text = title; isAllCaps = false; textSize = 12f; minHeight = dp(44); setPadding(dp(2), 0, dp(2), 0)
+                setTextColor(if (screen == currentScreen) blue else muted)
+                background = GradientDrawable().apply { setColor(Color.WHITE); cornerRadius = dp(10).toFloat() }
+                setOnClickListener { navigate(screen) }
+            }, LinearLayout.LayoutParams(0, -2, 1f))
+        }
+        root.addView(nav)
         setContentView(root)
+        navigate("home")
+    }
 
-        content.addView(label("Cadastrar despesa", 22, ink, true))
-        content.addView(label("Registre a despesa do colaborador e anexe uma foto ou imagem do comprovante. Os dados ficam salvos neste celular.", 14, muted, false).apply {
-            setPadding(0, dp(6), 0, dp(16))
-        })
+    private fun navigate(screen: String) {
+        currentScreen = screen
+        if (!::content.isInitialized) return
+        when (screen) {
+            "home" -> renderDashboard()
+            "expenses" -> renderReceipts()
+            "people" -> renderCollaborators()
+            "exchange" -> renderIntegration()
+            "new_expense" -> renderExpenseForm()
+            else -> renderDashboard()
+        }
+        val root = content.parent?.parent as? LinearLayout ?: return
+        val nav = root.getChildAt(root.childCount - 1) as? LinearLayout ?: return
+        val keys = listOf("home", "expenses", "people", "exchange")
+        for (i in 0 until nav.childCount) (nav.getChildAt(i) as? Button)?.setTextColor(if (keys.getOrNull(i) == currentScreen) blue else muted)
+    }
 
+    private fun renderDashboard() {
+        content.removeAllViews()
+        val receipts = database.listReceipts()
+        val collaborators = database.listCollaborators()
+        val total = receipts.fold(0L) { sum, r -> Math.addExact(sum, r.amountCents) }
+        val pending = receipts.sumOf { database.paymentStatus(it.externalId).balanceCents }
+        content.addView(label("Olá, Supervisor 👋", 24, ink, true))
+        content.addView(label("Resumo das suas despesas", 14, muted, false).apply { setPadding(0, dp(5), 0, dp(16)) })
+        val summary = card()
+        summary.addView(label("Total registrado", 13, muted, false))
+        summary.addView(label(money(total), 28, blue, true).apply { setPadding(0, dp(5), 0, dp(8)) })
+        summary.addView(label("${receipts.size} despesa(s) · ${collaborators.size} colaborador(es)", 13, muted, false))
+        content.addView(summary, spaced())
+        val stats = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        stats.addView(metricCard("Saldo pendente", money(pending), blue), LinearLayout.LayoutParams(0, -2, 1f).apply { rightMargin = dp(6) })
+        stats.addView(metricCard("Já pago", money(total - pending), green), LinearLayout.LayoutParams(0, -2, 1f).apply { leftMargin = dp(6) })
+        content.addView(stats, spaced())
+        content.addView(label("Ações rápidas", 19, ink, true).apply { setPadding(0, dp(8), 0, dp(10)) })
+        content.addView(actionButton("＋  Registrar despesa").apply { setOnClickListener { navigate("new_expense") } }, spaced())
+        content.addView(actionButton("＋  Cadastrar colaborador").apply { setOnClickListener { navigate("people"); openCollaboratorDialog() } }, spaced())
+        content.addView(actionButton("⇄  Trocar arquivos com o Gestor").apply { setOnClickListener { navigate("exchange") } }, spaced())
+        content.addView(label("Últimas despesas", 19, ink, true).apply { setPadding(0, dp(8), 0, dp(10)) })
+        if (receipts.isEmpty()) content.addView(emptyState("Ainda não há despesas. Registre a primeira para começar."))
+        else {
+            receipts.take(3).forEach { r ->
+                val payment = database.paymentStatus(r.externalId)
+                val item = card()
+                item.addView(label(r.collaborator, 15, ink, true))
+                item.addView(label(r.description, 13, muted, false).apply { setPadding(0, dp(4), 0, 0) })
+                item.addView(label(money(r.amountCents), 18, blue, true).apply { setPadding(0, dp(6), 0, 0) })
+                item.addView(statusChip("${payment.status} · saldo ${money(payment.balanceCents)}", payment.status))
+                content.addView(item, spaced())
+            }
+            content.addView(actionButton("Ver todas as despesas").apply { setOnClickListener { navigate("expenses") } }, spaced())
+        }
+    }
+
+    private fun renderExpenseForm() {
+        content.removeAllViews()
+        content.addView(label("Nova despesa", 24, ink, true))
+        content.addView(label("Preencha os dados e anexe o comprovante.", 14, muted, false).apply { setPadding(0, dp(5), 0, dp(16)) })
         val form = card()
         collaboratorSpinner = Spinner(this)
         refreshCollaboratorSpinner()
-        amountInput = field("Valor (ex.: 125,50)").apply {
-            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
-        }
+        amountInput = field("Valor em reais (ex.: 125,50)").apply { inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL }
         descriptionInput = field("Descrição da despesa")
-        dateInput = field("Data (AAAA-MM-DD)").apply {
-            setText(java.time.LocalDate.now().toString())
-        }
-        form.addView(fieldLabel("Colaborador cadastrado"))
-        form.addView(collaboratorSpinner, fieldParams())
-        form.addView(fieldLabel("Valor em reais"))
-        form.addView(amountInput, fieldParams())
-        form.addView(fieldLabel("Descrição"))
-        form.addView(descriptionInput, fieldParams())
-        form.addView(fieldLabel("Data da despesa"))
-        form.addView(dateInput, fieldParams())
-
-        photoButton = actionButton("Anexar foto do comprovante")
-        photoButton.setOnClickListener { openPhotoPicker() }
-        form.addView(photoButton, fieldParams())
-        statusLabel = label("Comprovante obrigatório.", 13, muted, false)
-        statusLabel.setPadding(0, dp(2), 0, dp(10))
-        form.addView(statusLabel)
-
-        val saveButton = actionButton("Salvar despesa")
-        saveButton.setOnClickListener { saveReceipt() }
-        form.addView(saveButton, matchWrap())
+        dateInput = field("Data (AAAA-MM-DD)").apply { setText(java.time.LocalDate.now().toString()) }
+        form.addView(fieldLabel("Colaborador")); form.addView(collaboratorSpinner, fieldParams())
+        form.addView(fieldLabel("Valor em reais")); form.addView(amountInput, fieldParams())
+        form.addView(fieldLabel("Descrição")); form.addView(descriptionInput, fieldParams())
+        form.addView(fieldLabel("Data da despesa")); form.addView(dateInput, fieldParams())
+        photoButton = actionButton("Anexar comprovante obrigatório")
+        photoButton.setOnClickListener { openPhotoPicker() }; form.addView(photoButton, fieldParams())
+        statusLabel = label(if (selectedPhotoUri == null) "O comprovante é obrigatório." else "Comprovante selecionado ✓", 13, if (selectedPhotoUri == null) muted else green, false)
+        statusLabel.setPadding(0, dp(4), 0, dp(10)); form.addView(statusLabel)
+        form.addView(actionButton("Salvar despesa").apply { setOnClickListener { saveReceipt() } }, matchWrap())
         content.addView(form, spaced())
-
-        val collaboratorButton = actionButton("Cadastrar colaborador e chave Pix")
-        collaboratorButton.setOnClickListener { openCollaboratorDialog() }
-        content.addView(collaboratorButton, spaced())
-
-        val exportButton = actionButton("Exportar para o Gestor (.xlsx)")
-        exportButton.setOnClickListener { exportReceipts() }
-        content.addView(exportButton, spaced())
-
-        val importReturnButton = actionButton("Importar retorno do Gestor (.xlsx)")
-        importReturnButton.setOnClickListener { choosePaymentReturn() }
-        content.addView(importReturnButton, spaced())
-
-        content.addView(label("Despesas salvas neste celular", 20, ink, true).apply {
-            setPadding(dp(2), dp(8), 0, dp(10))
-        })
+        content.addView(actionButton("Cancelar").apply { setOnClickListener { navigate("expenses") } }, spaced())
+        if (collaboratorOptions.isEmpty()) {
+            content.addView(emptyState("Cadastre primeiro um colaborador e sua chave Pix."), spaced())
+            content.addView(actionButton("Cadastrar colaborador").apply { setOnClickListener { navigate("people"); openCollaboratorDialog() } }, spaced())
+        }
     }
+
+    private fun renderCollaborators() {
+        content.removeAllViews()
+        val collaborators = database.listCollaborators()
+        content.addView(label("Pessoas", 24, ink, true))
+        content.addView(label("Colaboradores e dados Pix", 14, muted, false).apply { setPadding(0, dp(5), 0, dp(16)) })
+        content.addView(actionButton("＋  Cadastrar colaborador").apply { setOnClickListener { openCollaboratorDialog() } }, spaced())
+        content.addView(label("${collaborators.size} colaborador(es)", 14, muted, true).apply { setPadding(0, dp(8), 0, dp(10)) })
+        if (collaborators.isEmpty()) { content.addView(emptyState("Nenhum colaborador cadastrado. Adicione o primeiro para registrar despesas.")); return }
+        collaborators.forEach { c ->
+            val item = card()
+            item.addView(label(c.name, 17, ink, true))
+            if (c.team.isNotBlank()) item.addView(label("Equipe: ${c.team}", 13, muted, false).apply { setPadding(0, dp(4), 0, 0) })
+            item.addView(label("${c.pixType}: ${c.pixKey}", 14, blue, true).apply { setPadding(0, dp(8), 0, 0) })
+            item.addView(label("Titular: ${c.pixHolder}", 13, muted, false).apply { setPadding(0, dp(4), 0, 0) })
+            content.addView(item, spaced())
+        }
+    }
+
+    private fun renderIntegration() {
+        content.removeAllViews()
+        content.addView(label("Envios e retornos", 24, ink, true))
+        content.addView(label("Troque arquivos com o Gestor Windows. Não é necessário conectar uma conta bancária.", 14, muted, false).apply { setPadding(0, dp(5), 0, dp(16)) })
+        val exportCard = card()
+        exportCard.addView(label("1. Enviar despesas", 18, ink, true))
+        exportCard.addView(label("Gere uma planilha com despesas, colaboradores, chaves Pix e comprovantes.", 14, muted, false).apply { setPadding(0, dp(6), 0, dp(12)) })
+        exportCard.addView(actionButton("Exportar planilha").apply { setOnClickListener { exportReceipts() } })
+        content.addView(exportCard, spaced())
+        val importCard = card()
+        importCard.addView(label("2. Receber pagamentos", 18, ink, true))
+        importCard.addView(label("Depois que o Gestor registrar os pagamentos, importe o XLSX de retorno para atualizar os saldos.", 14, muted, false).apply { setPadding(0, dp(6), 0, dp(12)) })
+        importCard.addView(actionButton("Importar retorno do Gestor").apply { setOnClickListener { choosePaymentReturn() } })
+        content.addView(importCard, spaced())
+        val receipts = database.listReceipts()
+        val pending = receipts.sumOf { database.paymentStatus(it.externalId).balanceCents }
+        content.addView(label("Resumo", 18, ink, true).apply { setPadding(0, dp(8), 0, dp(8)) })
+        content.addView(emptyState("${receipts.size} despesa(s) · saldo pendente ${money(pending)}"))
+    }
+
+    private fun metricCard(title: String, value: String, valueColor: Int): LinearLayout = card().apply {
+        addView(label(title, 12, muted, false))
+        addView(label(value, 17, valueColor, true).apply { setPadding(0, dp(6), 0, 0) })
+    }
+
+    private fun emptyState(message: String): LinearLayout = card().apply { addView(label(message, 14, muted, false)) }
+
+    private fun statusChip(text: String, status: String): TextView = label(text, 12, when (status) {
+        "Pago" -> green
+        "Parcial" -> Color.rgb(180, 83, 9)
+        else -> blue
+    }, true).apply { setPadding(0, dp(8), 0, 0) }
 
     private fun openCollaboratorDialog() {
         val form = LinearLayout(this).apply {
