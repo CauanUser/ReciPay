@@ -131,6 +131,30 @@ class ReceiptDatabase(context: Context) : SQLiteOpenHelper(context, "recipay_sup
         return writableDatabase.insertOrThrow("collaborators", null, values)
     }
 
+
+    fun updateCollaborator(
+        id: Long, name: String, team: String, role: String,
+        pixType: String, pixKey: String, pixHolder: String
+    ) {
+        val values = ContentValues().apply {
+            put("name", name.trim())
+            put("team", team.trim())
+            put("role", role.trim().ifBlank { "Funcionário" })
+            put("pix_type", pixType)
+            put("pix_key", pixKey.trim())
+            put("pix_holder", pixHolder.trim())
+        }
+        require(name.trim().isNotBlank() && pixKey.trim().isNotBlank() && pixHolder.trim().isNotBlank()) {
+            "Preencha nome, chave Pix e titular."
+        }
+        val changed = writableDatabase.update("collaborators", values, "id = ?", arrayOf(id.toString()))
+        require(changed == 1) { "Colaborador não encontrado." }
+        writableDatabase.execSQL(
+            "UPDATE receipts SET collaborator = ? WHERE collaborator_id = ?",
+            arrayOf(name.trim(), id)
+        )
+    }
+
     fun listCollaborators(): List<LocalCollaborator> {
         val result = mutableListOf<LocalCollaborator>()
         readableDatabase.query(
