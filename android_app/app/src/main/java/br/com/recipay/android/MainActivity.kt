@@ -483,8 +483,8 @@ class MainActivity : Activity() {
 
     private fun renderReceipts() {
         val receipts = database.listReceipts()
-        content.addView(label("Despesas", 23, ink, true))
-        content.addView(label("Acompanhe os valores registrados e o andamento dos pagamentos.", 14, muted, false).apply {
+        content.addView(label("Despesas", 24, ink, true))
+        content.addView(label("Consulte, acompanhe e gerencie os registros antes de enviar ao Gestor.", 14, muted, false).apply {
             setPadding(0, dp(5), 0, dp(15))
         })
         val add = actionButton("+ Nova despesa")
@@ -492,60 +492,84 @@ class MainActivity : Activity() {
         content.addView(add, spaced())
 
         val total = receipts.fold(0L) { sum, receipt -> Math.addExact(sum, receipt.amountCents) }
+        val statuses = receipts.map { database.paymentStatus(it.externalId) }
+        val paid = statuses.fold(0L) { sum, status -> Math.addExact(sum, status.paidCents) }
+        val pending = statuses.fold(0L) { sum, status -> Math.addExact(sum, status.balanceCents) }
         val summary = card()
         summary.addView(label("Total registrado", 13, muted, false))
-        summary.addView(label(money(total), 23, blue, true).apply { setPadding(0, dp(3), 0, 0) })
-        summary.addView(label("${receipts.size} despesa(s)", 12, muted, false).apply { setPadding(0, dp(3), 0, 0) })
+        summary.addView(label(money(total), 25, blue, true).apply { setPadding(0, dp(3), 0, 0) })
+        summary.addView(label("${receipts.size} despesa(s)  ·  ${receipts.count { database.paymentStatus(it.externalId).status == "Pendente" }} pendente(s)", 12, muted, false).apply { setPadding(0, dp(3), 0, 0) })
+        summary.addView(label("Pago: ${money(paid)}     Em aberto: ${money(pending)}", 13, blue, true).apply { setPadding(0, dp(7), 0, 0) })
         content.addView(summary, spaced())
 
-        if (receipts.isEmpty()) {
-            val empty = card()
-            empty.addView(label("Sua lista está vazia", 16, ink, true))
-            empty.addView(label("Quando cadastrar uma despesa, ela aparecerá aqui com o comprovante e o status do pagamento.", 13, muted, false).apply { setPadding(0, dp(5), 0, 0) })
-            content.addView(empty, spaced())
-            return
-        }
-        receipts.forEach { receipt ->
-            val item = card()
-            val payment = database.paymentStatus(receipt.externalId)
-            item.addView(label(receipt.collaborator, 16, ink, true))
-            item.addView(label(money(receipt.amountCents), 21, blue, true).apply { setPadding(0, dp(5), 0, 0) })
-            item.addView(label(receipt.description, 14, ink, false).apply { setPadding(0, dp(4), 0, 0) })
-            item.addView(label("Data: ${receipt.expenseDate}", 12, muted, false).apply { setPadding(0, dp(5), 0, 0) })
-            item.addView(label("Comprovante anexado ✓", 12, green, true).apply { setPadding(0, dp(5), 0, 0) })
-            val statusColor = when (payment.status.lowercase(Locale.ROOT)) {
-                "pago" -> green
-                "parcial" -> Color.rgb(180, 83, 9)
-                else -> blue
+        val search = field("Buscar por colaborador, descrição ou data")
+        search.setCompoundDrawablePadding(dp(8))
+        content.addView(search, spaced())
+        val listContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        content.addView(listContainer)
+
+        fun renderItems(rawQuery: String) {
+            listContainer.removeAllViews()
+            val query = rawQuery.trim().lowercase(Locale.ROOT)
+            val filtered = receipts.filter { receipt ->
+                query.isBlank() || receipt.collaborator.lowercase(Locale.ROOT).contains(query) ||
+                    receipt.description.lowercase(Locale.ROOT).contains(query) ||
+                    receipt.expenseDate.lowercase(Locale.ROOT).contains(query)
             }
-            item.addView(label("Status: ${payment.status}", 13, statusColor, true).apply { setPadding(0, dp(6), 0, 0) })
-            item.addView(label("Pago: ${money(payment.paidCents)}  ·  Saldo: ${money(payment.balanceCents)}", 12, muted, false).apply { setPadding(0, dp(3), 0, dp(12)) })
-            val delete = actionButton("Excluir despesa")
-            delete.background = GradientDrawable().apply {
-                setColor(Color.rgb(254, 242, 242))
-                cornerRadius = dp(10).toFloat()
-                setStroke(dp(1), Color.rgb(254, 202, 202))
+            if (filtered.isEmpty()) {
+                val empty = card()
+                empty.addView(label(if (receipts.isEmpty()) "Nenhuma despesa cadastrada" else "Nenhum resultado encontrado", 16, ink, true))
+                empty.addView(label(if (receipts.isEmpty()) "Cadastre sua primeira despesa para começar." else "Tente outro nome, descrição ou data.", 13, muted, false).apply { setPadding(0, dp(5), 0, 0) })
+                listContainer.addView(empty, spaced())
+                return
             }
-            delete.setTextColor(red)
-            delete.setOnClickListener {
-                AlertDialog.Builder(this)
-                    .setTitle("Excluir esta despesa?")
-                    .setMessage("“${receipt.description}” — ${money(receipt.amountCents)}\n\nEssa ação remove o registro e o comprovante deste celular. Se já enviou a planilha ao Gestor, apagar aqui não remove a cópia do computador. Despesas com pagamentos vinculados não podem ser excluídas.")
-                    .setNegativeButton("Manter", null)
-                    .setPositiveButton("Excluir") { _, _ ->
-                        try {
-                            database.deleteReceipt(receipt.id)
-                            toast("Despesa excluída.")
-                            showScreen("receipts")
-                        } catch (error: Exception) {
-                            toast(error.message ?: "Não foi possível excluir esta despesa.")
+            filtered.forEach { receipt ->
+                val item = card()
+                val payment = database.paymentStatus(receipt.externalId)
+                item.addView(label(receipt.collaborator, 16, ink, true))
+                item.addView(label(money(receipt.amountCents), 22, blue, true).apply { setPadding(0, dp(5), 0, 0) })
+                item.addView(label(receipt.description, 14, ink, false).apply { setPadding(0, dp(4), 0, 0) })
+                item.addView(label("Data: ${receipt.expenseDate}", 12, muted, false).apply { setPadding(0, dp(5), 0, 0) })
+                val statusColor = when (payment.status.lowercase(Locale.ROOT)) {
+                    "pago" -> green
+                    "parcial" -> Color.rgb(180, 83, 9)
+                    else -> blue
+                }
+                item.addView(label("Status: ${payment.status}", 13, statusColor, true).apply { setPadding(0, dp(6), 0, 0) })
+                item.addView(label("Pago: ${money(payment.paidCents)}  ·  Saldo: ${money(payment.balanceCents)}", 12, muted, false).apply { setPadding(0, dp(3), 0, dp(12)) })
+                val delete = actionButton("Excluir despesa")
+                delete.background = GradientDrawable().apply {
+                    setColor(Color.rgb(254, 242, 242))
+                    cornerRadius = dp(10).toFloat()
+                    setStroke(dp(1), Color.rgb(254, 202, 202))
+                }
+                delete.setTextColor(red)
+                delete.setOnClickListener {
+                    AlertDialog.Builder(this)
+                        .setTitle("Excluir esta despesa?")
+                        .setMessage("“${receipt.description}” — ${money(receipt.amountCents)}\\n\\nEssa ação remove o registro e o comprovante deste celular. Se já enviou a planilha ao Gestor, apagar aqui não remove a cópia do computador. Despesas com pagamentos vinculados não podem ser excluídas.")
+                        .setNegativeButton("Manter", null)
+                        .setPositiveButton("Excluir") { _, _ ->
+                            try {
+                                database.deleteReceipt(receipt.id)
+                                toast("Despesa excluída.")
+                                showScreen("receipts")
+                            } catch (error: Exception) {
+                                toast(error.message ?: "Não foi possível excluir esta despesa.")
+                            }
                         }
-                    }
-                    .show()
+                        .show()
+                }
+                item.addView(delete, matchWrap())
+                listContainer.addView(item, spaced())
             }
-            item.addView(delete, matchWrap())
-            content.addView(item, spaced())
         }
+        search.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) { renderItems(s?.toString().orEmpty()) }
+        })
+        renderItems("")
     }
 
     private fun card(): LinearLayout = LinearLayout(this).apply {
