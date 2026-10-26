@@ -48,7 +48,6 @@ class MainActivity : Activity() {
     }
 
     private lateinit var screenRoot: LinearLayout
-    private var currentScreen: String = "home"
 
     private fun renderHome() {
         screenRoot = LinearLayout(this).apply {
@@ -299,7 +298,7 @@ class MainActivity : Activity() {
                         pixKey, pixHolder
                     )
                     toast("Colaborador cadastrado neste celular.")
-                    navigate("people")
+                    showScreen("people")
                 } catch (_: android.database.sqlite.SQLiteConstraintException) {
                     toast("Já existe um colaborador com esse nome.")
                 } catch (error: Exception) {
@@ -356,7 +355,7 @@ class MainActivity : Activity() {
             statusLabel.text = "Comprovante obrigatório."
             statusLabel.setTextColor(muted)
             toast("Despesa salva neste celular.")
-            navigate("expenses")
+            showScreen("receipts")
         } catch (error: Exception) {
             toast(error.message ?: "Não foi possível salvar a despesa.")
         }
@@ -424,7 +423,7 @@ class MainActivity : Activity() {
                         try {
                             val result = database.importPaymentReturn(preview, File(filesDir, "payment_proofs"))
                             toast("Retorno processado: ${result.importedTransfers} novo(s), ${result.ignoredTransfers} repetido(s).")
-                            navigate("expenses")
+                            showScreen("receipts")
                         } catch (error: Exception) {
                             toast(error.message ?: "Não foi possível importar o retorno.")
                         }
