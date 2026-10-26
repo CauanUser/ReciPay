@@ -35,8 +35,8 @@ class MainActivity : Activity() {
     private var selectedPhotoUri: Uri? = null
     private var currentScreen: String = "home"
 
-    private val blue = Color.rgb(30, 90, 168)
-    private val ink = Color.rgb(30, 41, 59)
+    private val blue = Color.rgb(37, 99, 235)
+    private val ink = Color.rgb(15, 23, 42)
     private val muted = Color.rgb(100, 116, 139)
     private val green = Color.rgb(22, 128, 72)
     private val red = Color.rgb(185, 28, 28)
@@ -52,15 +52,15 @@ class MainActivity : Activity() {
     private fun renderHome() {
         screenRoot = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.rgb(247, 249, 252))
+            setBackgroundColor(Color.rgb(241, 245, 249))
         }
         val header = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(22), dp(18), dp(22), dp(16))
-            setBackgroundColor(blue)
+            setPadding(dp(22), dp(20), dp(22), dp(18))
+            background = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, intArrayOf(Color.rgb(30, 64, 175), blue))
         }
-        header.addView(label("Recipay", 25, Color.WHITE, true))
-        header.addView(label("Controle de despesas", 14, Color.rgb(225, 237, 255), false).apply {
+        header.addView(label("Recipay", 27, Color.WHITE, true))
+        header.addView(label("GESTÃO DE DESPESAS  •  SUPERVISOR", 12, Color.rgb(219, 234, 254), true).apply {
             setPadding(0, dp(3), 0, 0)
         })
         screenRoot.addView(header)
@@ -89,8 +89,9 @@ class MainActivity : Activity() {
                 text = title
                 textSize = 12f
                 gravity = Gravity.CENTER
-                setPadding(dp(2), dp(10), dp(2), dp(10))
+                setPadding(dp(2), dp(12), dp(2), dp(12))
                 setTypeface(typeface, Typeface.BOLD)
+                background = if (key == currentScreen) GradientDrawable().apply { setColor(Color.rgb(239, 246, 255)); cornerRadius = dp(12).toFloat() } else GradientDrawable().apply { setColor(Color.TRANSPARENT); cornerRadius = dp(12).toFloat() }
                 setTextColor(if (key == currentScreen) blue else muted)
                 setOnClickListener { showScreen(key) }
             }
@@ -116,7 +117,9 @@ class MainActivity : Activity() {
         for (i in 0 until nav.childCount) {
             val item = nav.getChildAt(i) as? TextView ?: continue
             val key = listOf("home", "receipts", "people", "files").getOrNull(i)
-            item.setTextColor(if (key == screen || (screen == "new" && key == "receipts")) blue else muted)
+            val selected = key == screen || (screen == "new" && key == "receipts")
+            item.setTextColor(if (selected) blue else muted)
+            item.background = if (selected) GradientDrawable().apply { setColor(Color.rgb(239, 246, 255)); cornerRadius = dp(12).toFloat() } else GradientDrawable().apply { setColor(Color.TRANSPARENT); cornerRadius = dp(12).toFloat() }
         }
     }
 
@@ -222,7 +225,8 @@ class MainActivity : Activity() {
         }
         collaborators.forEach { person ->
             val item = card()
-            item.addView(label(person.name, 16, ink, true))
+            item.addView(label(person.name, 17, ink, true))
+            item.addView(label("Função: ${person.role}", 13, blue, true).apply { setPadding(0, dp(4), 0, 0) })
             if (person.team.isNotBlank()) item.addView(label("Equipe: ${person.team}", 13, muted, false).apply { setPadding(0, dp(3), 0, 0) })
             item.addView(label("${person.pixType}: ${person.pixKey}", 14, blue, true).apply { setPadding(0, dp(6), 0, 0) })
             item.addView(label("Titular: ${person.pixHolder}", 13, muted, false).apply { setPadding(0, dp(3), 0, 0) })
@@ -269,6 +273,11 @@ class MainActivity : Activity() {
         }
         val name = addInput("Nome completo do colaborador")
         val team = addInput("Equipe (opcional)")
+        val roleLabel = label("Função / cargo", 13, ink, true).apply { setPadding(0, dp(8), 0, dp(4)) }
+        form.addView(roleLabel)
+        val role = Spinner(this)
+        role.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, listOf("Funcionário", "Auxiliar", "Técnico", "Motorista", "Encarregado", "Supervisor", "Gestor", "Outro"))
+        form.addView(role, fieldParams())
         val typeLabel = label("Tipo da chave Pix", 13, ink, true).apply {
             setPadding(0, dp(8), 0, dp(4))
         }
@@ -293,7 +302,7 @@ class MainActivity : Activity() {
                 }
                 try {
                     database.addCollaborator(
-                        collaboratorName, team.text.toString(),
+                        collaboratorName, team.text.toString(), role.selectedItem.toString(),
                         listOf("CPF", "CNPJ", "EMAIL", "TELEFONE", "ALEATORIA")[type.selectedItemPosition],
                         pixKey, pixHolder
                     )
@@ -489,7 +498,31 @@ class MainActivity : Activity() {
                 else -> blue
             }
             item.addView(label("Status: ${payment.status}", 13, statusColor, true).apply { setPadding(0, dp(6), 0, 0) })
-            item.addView(label("Pago: ${money(payment.paidCents)}  ·  Saldo: ${money(payment.balanceCents)}", 12, muted, false).apply { setPadding(0, dp(3), 0, 0) })
+            item.addView(label("Pago: ${money(payment.paidCents)}  ·  Saldo: ${money(payment.balanceCents)}", 12, muted, false).apply { setPadding(0, dp(3), 0, dp(12)) })
+            val delete = actionButton("Excluir despesa")
+            delete.background = GradientDrawable().apply {
+                setColor(Color.rgb(254, 242, 242))
+                cornerRadius = dp(10).toFloat()
+                setStroke(dp(1), Color.rgb(254, 202, 202))
+            }
+            delete.setTextColor(red)
+            delete.setOnClickListener {
+                AlertDialog.Builder(this)
+                    .setTitle("Excluir esta despesa?")
+                    .setMessage("“${receipt.description}” — ${money(receipt.amountCents)}\\n\\nEssa ação remove o registro e o comprovante deste celular. Despesas com pagamentos vinculados não podem ser excluídas.")
+                    .setNegativeButton("Manter", null)
+                    .setPositiveButton("Excluir") { _, _ ->
+                        try {
+                            database.deleteReceipt(receipt.id)
+                            toast("Despesa excluída.")
+                            showScreen("receipts")
+                        } catch (error: Exception) {
+                            toast(error.message ?: "Não foi possível excluir esta despesa.")
+                        }
+                    }
+                    .show()
+            }
+            item.addView(delete, matchWrap())
             content.addView(item, spaced())
         }
     }
@@ -499,9 +532,10 @@ class MainActivity : Activity() {
         setPadding(dp(16), dp(16), dp(16), dp(16))
         background = GradientDrawable().apply {
             setColor(Color.WHITE)
-            cornerRadius = dp(16).toFloat()
+            cornerRadius = dp(18).toFloat()
+            setStroke(dp(1), Color.rgb(226, 232, 240))
         }
-        elevation = dp(1).toFloat()
+        elevation = dp(2).toFloat()
     }
 
     private fun field(hintText: String): EditText = EditText(this).apply {
