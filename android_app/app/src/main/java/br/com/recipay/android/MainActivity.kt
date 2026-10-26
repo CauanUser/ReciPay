@@ -453,16 +453,27 @@ class MainActivity : Activity() {
     }
 
     private fun renderReceipts() {
-        content.removeAllViews()
         val receipts = database.listReceipts()
-        content.addView(label("Despesas", 24, ink, true))
-        content.addView(label("Consulte valores, comprovantes e o andamento de cada reembolso.", 14, muted, false).apply { setPadding(0, dp(5), 0, dp(16)) })
-        content.addView(actionButton("＋  Registrar despesa").apply { setOnClickListener { navigate("new_expense") } }, spaced())
-        val total = receipts.fold(0L) { sum, r -> Math.addExact(sum, r.amountCents) }
-        val pending = receipts.sumOf { database.paymentStatus(it.externalId).balanceCents }
-        content.addView(label("${receipts.size} despesa(s) · total ${money(total)} · pendente ${money(pending)}", 13, muted, true).apply { setPadding(0, dp(8), 0, dp(12)) })
+        content.addView(label("Despesas", 23, ink, true))
+        content.addView(label("Acompanhe os valores registrados e o andamento dos pagamentos.", 14, muted, false).apply {
+            setPadding(0, dp(5), 0, dp(15))
+        })
+        val add = actionButton("+ Nova despesa")
+        add.setOnClickListener { showScreen("new") }
+        content.addView(add, spaced())
+
+        val total = receipts.fold(0L) { sum, receipt -> Math.addExact(sum, receipt.amountCents) }
+        val summary = card()
+        summary.addView(label("Total registrado", 13, muted, false))
+        summary.addView(label(money(total), 23, blue, true).apply { setPadding(0, dp(3), 0, 0) })
+        summary.addView(label("${receipts.size} despesa(s)", 12, muted, false).apply { setPadding(0, dp(3), 0, 0) })
+        content.addView(summary, spaced())
+
         if (receipts.isEmpty()) {
-            content.addView(emptyState("Nenhuma despesa registrada. Toque em “Registrar despesa” para adicionar a primeira."))
+            val empty = card()
+            empty.addView(label("Sua lista está vazia", 16, ink, true))
+            empty.addView(label("Quando cadastrar uma despesa, ela aparecerá aqui com o comprovante e o status do pagamento.", 13, muted, false).apply { setPadding(0, dp(5), 0, 0) })
+            content.addView(empty, spaced())
             return
         }
         receipts.forEach { receipt ->
@@ -472,8 +483,14 @@ class MainActivity : Activity() {
             item.addView(label(money(receipt.amountCents), 21, blue, true).apply { setPadding(0, dp(5), 0, 0) })
             item.addView(label(receipt.description, 14, ink, false).apply { setPadding(0, dp(4), 0, 0) })
             item.addView(label("Data: ${receipt.expenseDate}", 12, muted, false).apply { setPadding(0, dp(5), 0, 0) })
-            item.addView(statusChip(payment.status, payment.status))
-            item.addView(label("Pago: ${money(payment.paidCents)} · Saldo: ${money(payment.balanceCents)}", 13, muted, false).apply { setPadding(0, dp(5), 0, 0) })
+            item.addView(label("Comprovante anexado ✓", 12, green, true).apply { setPadding(0, dp(5), 0, 0) })
+            val statusColor = when (payment.status.lowercase(Locale.ROOT)) {
+                "pago" -> green
+                "parcial" -> Color.rgb(180, 83, 9)
+                else -> blue
+            }
+            item.addView(label("Status: ${payment.status}", 13, statusColor, true).apply { setPadding(0, dp(6), 0, 0) })
+            item.addView(label("Pago: ${money(payment.paidCents)}  ·  Saldo: ${money(payment.balanceCents)}", 12, muted, false).apply { setPadding(0, dp(3), 0, 0) })
             content.addView(item, spaced())
         }
     }
