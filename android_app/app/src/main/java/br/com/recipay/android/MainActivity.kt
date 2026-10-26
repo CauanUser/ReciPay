@@ -229,7 +229,10 @@ class MainActivity : Activity() {
             item.addView(label("Função: ${person.role}", 13, blue, true).apply { setPadding(0, dp(4), 0, 0) })
             if (person.team.isNotBlank()) item.addView(label("Equipe: ${person.team}", 13, muted, false).apply { setPadding(0, dp(3), 0, 0) })
             item.addView(label("${person.pixType}: ${person.pixKey}", 14, blue, true).apply { setPadding(0, dp(6), 0, 0) })
-            item.addView(label("Titular: ${person.pixHolder}", 13, muted, false).apply { setPadding(0, dp(3), 0, 0) })
+            item.addView(label("Titular: ${person.pixHolder}", 13, muted, false).apply { setPadding(0, dp(3), 0, dp(10)) })
+            val edit = actionButton("Editar colaborador")
+            edit.setOnClickListener { openCollaboratorDialog(person) }
+            item.addView(edit, matchWrap())
             content.addView(item, spaced())
         }
     }
@@ -261,7 +264,7 @@ class MainActivity : Activity() {
         content.addView(note, spaced())
     }
 
-    private fun openCollaboratorDialog() {
+    private fun openCollaboratorDialog(existing: LocalCollaborator? = null) {
         val form = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), dp(8), dp(20), dp(4))
@@ -288,8 +291,18 @@ class MainActivity : Activity() {
         form.addView(type, fieldParams())
         val key = addInput("Chave Pix")
         val holder = addInput("Nome do titular da chave Pix")
+        if (existing != null) {
+            name.setText(existing.name)
+            team.setText(existing.team)
+            val roleIndex = (role.adapter as ArrayAdapter<String>).getPosition(existing.role)
+            if (roleIndex >= 0) role.setSelection(roleIndex)
+            val typeIndex = listOf("CPF", "CNPJ", "EMAIL", "TELEFONE", "ALEATORIA").indexOf(existing.pixType)
+            if (typeIndex >= 0) type.setSelection(typeIndex)
+            key.setText(existing.pixKey)
+            holder.setText(existing.pixHolder)
+        }
         AlertDialog.Builder(this)
-            .setTitle("Novo colaborador")
+            .setTitle(if (existing == null) "Novo colaborador" else "Editar colaborador")
             .setView(form)
             .setNegativeButton("Cancelar", null)
             .setPositiveButton("Salvar") { _, _ ->
@@ -301,12 +314,20 @@ class MainActivity : Activity() {
                     return@setPositiveButton
                 }
                 try {
-                    database.addCollaborator(
-                        collaboratorName, team.text.toString(), role.selectedItem.toString(),
-                        listOf("CPF", "CNPJ", "EMAIL", "TELEFONE", "ALEATORIA")[type.selectedItemPosition],
-                        pixKey, pixHolder
-                    )
-                    toast("Colaborador cadastrado neste celular.")
+                    val pixType = listOf("CPF", "CNPJ", "EMAIL", "TELEFONE", "ALEATORIA")[type.selectedItemPosition]
+                    if (existing == null) {
+                        database.addCollaborator(
+                            collaboratorName, team.text.toString(), role.selectedItem.toString(),
+                            pixType, pixKey, pixHolder
+                        )
+                        toast("Colaborador cadastrado neste celular.")
+                    } else {
+                        database.updateCollaborator(
+                            existing.id, collaboratorName, team.text.toString(), role.selectedItem.toString(),
+                            pixType, pixKey, pixHolder
+                        )
+                        toast("Dados do colaborador atualizados.")
+                    }
                     showScreen("people")
                 } catch (_: android.database.sqlite.SQLiteConstraintException) {
                     toast("Já existe um colaborador com esse nome.")
