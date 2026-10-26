@@ -37,11 +37,11 @@ class MainActivity : Activity() {
     private var pendingCameraUri: Uri? = null
     private var currentScreen: String = "home"
 
-    private val blue = Color.rgb(37, 99, 235)
-    private val ink = Color.rgb(15, 23, 42)
-    private val muted = Color.rgb(100, 116, 139)
-    private val green = Color.rgb(22, 128, 72)
-    private val red = Color.rgb(185, 28, 28)
+    private val blue = Color.rgb(139, 92, 246)
+    private val ink = Color.rgb(248, 250, 252)
+    private val muted = Color.rgb(180, 169, 205)
+    private val green = Color.rgb(74, 222, 128)
+    private val red = Color.rgb(251, 113, 133)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -54,15 +54,15 @@ class MainActivity : Activity() {
     private fun renderHome() {
         screenRoot = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.rgb(241, 245, 249))
+            setBackgroundColor(Color.rgb(11, 6, 25))
         }
         val header = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(22), dp(20), dp(22), dp(18))
-            background = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, intArrayOf(Color.rgb(30, 64, 175), blue))
+            background = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, intArrayOf(Color.rgb(31, 10, 67), Color.rgb(91, 33, 182), blue))
         }
         header.addView(label("Recipay", 27, Color.WHITE, true))
-        header.addView(label("GESTÃO DE DESPESAS  •  SUPERVISOR", 12, Color.rgb(219, 234, 254), true).apply {
+        header.addView(label("GESTÃO DE DESPESAS  •  SUPERVISOR", 12, Color.rgb(233, 213, 255), true).apply {
             setPadding(0, dp(3), 0, 0)
         })
         screenRoot.addView(header)
@@ -78,7 +78,7 @@ class MainActivity : Activity() {
         val nav = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(dp(4), dp(7), dp(4), dp(7))
-            setBackgroundColor(Color.WHITE)
+            setBackgroundColor(Color.rgb(17, 10, 34))
             elevation = dp(8).toFloat()
         }
         listOf(
@@ -93,7 +93,7 @@ class MainActivity : Activity() {
                 gravity = Gravity.CENTER
                 setPadding(dp(2), dp(12), dp(2), dp(12))
                 setTypeface(typeface, Typeface.BOLD)
-                background = if (key == currentScreen) GradientDrawable().apply { setColor(Color.rgb(239, 246, 255)); cornerRadius = dp(12).toFloat() } else GradientDrawable().apply { setColor(Color.TRANSPARENT); cornerRadius = dp(12).toFloat() }
+                background = if (key == currentScreen) GradientDrawable().apply { setColor(Color.rgb(46, 25, 78)); cornerRadius = dp(12).toFloat() } else GradientDrawable().apply { setColor(Color.TRANSPARENT); cornerRadius = dp(12).toFloat() }
                 setTextColor(if (key == currentScreen) blue else muted)
                 setOnClickListener { showScreen(key) }
             }
@@ -121,7 +121,7 @@ class MainActivity : Activity() {
             val key = listOf("home", "receipts", "people", "files").getOrNull(i)
             val selected = key == screen || (screen == "new" && key == "receipts")
             item.setTextColor(if (selected) blue else muted)
-            item.background = if (selected) GradientDrawable().apply { setColor(Color.rgb(239, 246, 255)); cornerRadius = dp(12).toFloat() } else GradientDrawable().apply { setColor(Color.TRANSPARENT); cornerRadius = dp(12).toFloat() }
+            item.background = if (selected) GradientDrawable().apply { setColor(Color.rgb(46, 25, 78)); cornerRadius = dp(12).toFloat() } else GradientDrawable().apply { setColor(Color.TRANSPARENT); cornerRadius = dp(12).toFloat() }
         }
     }
 
@@ -720,7 +720,7 @@ class MainActivity : Activity() {
                 if (payment.paidCents == 0L) {
                     val edit = actionButton("Editar despesa")
                     edit.background = GradientDrawable().apply {
-                        setColor(Color.rgb(239, 246, 255))
+                        setColor(Color.rgb(46, 25, 78))
                         cornerRadius = dp(10).toFloat()
                         setStroke(dp(1), Color.rgb(191, 219, 254))
                     }
