@@ -1,6 +1,7 @@
 package br.com.recipay.android
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
@@ -9,10 +10,12 @@ import android.net.Uri
 import android.os.Bundle
 import android.text.InputType
 import android.view.Gravity
+import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
 import java.io.File
@@ -103,9 +106,64 @@ class MainActivity : Activity() {
         form.addView(saveButton, matchWrap())
         content.addView(form, spaced())
 
+        val collaboratorButton = actionButton("Cadastrar colaborador e chave Pix")
+        collaboratorButton.setOnClickListener { openCollaboratorDialog() }
+        content.addView(collaboratorButton, spaced())
+
         content.addView(label("Despesas salvas neste celular", 20, ink, true).apply {
             setPadding(dp(2), dp(8), 0, dp(10))
         })
+    }
+
+    private fun openCollaboratorDialog() {
+        val form = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(8), dp(20), dp(4))
+        }
+        fun addInput(hint: String): EditText {
+            val input = field(hint)
+            form.addView(input, fieldParams())
+            return input
+        }
+        val name = addInput("Nome completo do colaborador")
+        val team = addInput("Equipe (opcional)")
+        val typeLabel = label("Tipo da chave Pix", 13, ink, true).apply {
+            setPadding(0, dp(8), 0, dp(4))
+        }
+        form.addView(typeLabel)
+        val type = Spinner(this)
+        val types = listOf("CPF", "CNPJ", "E-mail", "Telefone", "Chave aleatória")
+        type.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, types)
+        form.addView(type, fieldParams())
+        val key = addInput("Chave Pix")
+        val holder = addInput("Nome do titular da chave Pix")
+        AlertDialog.Builder(this)
+            .setTitle("Novo colaborador")
+            .setView(form)
+            .setNegativeButton("Cancelar", null)
+            .setPositiveButton("Salvar") { _, _ ->
+                val collaboratorName = name.text.toString().trim()
+                val pixKey = key.text.toString().trim()
+                val pixHolder = holder.text.toString().trim()
+                if (collaboratorName.isBlank() || pixKey.isBlank() || pixHolder.isBlank()) {
+                    toast("Preencha nome, chave Pix e titular.")
+                    return@setPositiveButton
+                }
+                try {
+                    database.addCollaborator(
+                        collaboratorName, team.text.toString(),
+                        listOf("CPF", "CNPJ", "EMAIL", "TELEFONE", "ALEATORIA")[type.selectedItemPosition],
+                        pixKey, pixHolder
+                    )
+                    toast("Colaborador cadastrado neste celular.")
+                    renderReceipts()
+                } catch (_: android.database.sqlite.SQLiteConstraintException) {
+                    toast("Já existe um colaborador com esse nome.")
+                } catch (error: Exception) {
+                    toast(error.message ?: "Não foi possível cadastrar o colaborador.")
+                }
+            }
+            .show()
     }
 
     private fun saveReceipt() {
@@ -185,10 +243,34 @@ class MainActivity : Activity() {
     private fun renderReceipts() {
         if (!::content.isInitialized) return
         // Keep the title and form, replacing only the list cards below them.
-        val listStart = 4
+        val listStart = 5
         if (content.childCount > listStart) {
             content.removeViews(listStart, content.childCount - listStart)
         }
+        val collaborators = database.listCollaborators()
+        content.addView(label("Colaboradores e chaves Pix", 20, ink, true).apply {
+            setPadding(dp(2), dp(8), 0, dp(10))
+        })
+        if (collaborators.isEmpty()) {
+            val empty = card()
+            empty.addView(label("Nenhum colaborador cadastrado ainda.", 14, muted, false))
+            content.addView(empty, spaced())
+        } else {
+            collaborators.forEach { collaborator ->
+                val item = card()
+                item.addView(label(collaborator.name, 16, ink, true))
+                if (collaborator.team.isNotBlank()) {
+                    item.addView(label("Equipe: ${collaborator.team}", 13, muted, false).apply { setPadding(0, dp(3), 0, 0) })
+                }
+                item.addView(label("${collaborator.pixType}: ${collaborator.pixKey}", 14, blue, true).apply { setPadding(0, dp(5), 0, 0) })
+                item.addView(label("Titular: ${collaborator.pixHolder}", 13, muted, false).apply { setPadding(0, dp(3), 0, 0) })
+                content.addView(item, spaced())
+            }
+        }
+
+        content.addView(label("Despesas", 20, ink, true).apply {
+            setPadding(dp(2), dp(8), 0, dp(10))
+        })
         val receipts = database.listReceipts()
         if (receipts.isEmpty()) {
             val empty = card()
