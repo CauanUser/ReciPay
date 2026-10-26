@@ -759,11 +759,11 @@ class MainActivity : Activity() {
             setStroke(dp(1), Color.rgb(73, 54, 101))
         }
         statusFilter.setPadding(dp(12), dp(8), dp(12), dp(8))
-        statusFilter.popupBackground = GradientDrawable().apply {
+        statusFilter.setPopupBackgroundDrawable(GradientDrawable().apply {
             setColor(Color.rgb(23, 14, 43))
             cornerRadius = dp(10).toFloat()
             setStroke(dp(1), Color.rgb(73, 54, 101))
-        }
+        })
         content.addView(statusFilter, spaced())
 
         val listContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
