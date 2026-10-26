@@ -91,10 +91,34 @@ class MainActivity : Activity() {
             setPadding(dp(22), dp(20), dp(22), dp(18))
             background = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, intArrayOf(Color.rgb(31, 10, 67), Color.rgb(91, 33, 182), blue))
         }
-        header.addView(label("Recipay", 27, Color.WHITE, true))
-        header.addView(label("GESTÃO DE DESPESAS  •  SUPERVISOR", 12, Color.rgb(233, 213, 255), true).apply {
+        val brandRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val brandLogo = android.widget.ImageView(this).apply {
+            setImageResource(R.drawable.recipay_launcher_foreground)
+            scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
+            contentDescription = "Logo ReciPay"
+            setPadding(dp(4), dp(4), dp(4), dp(4))
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(Color.argb(38, 255, 255, 255))
+                setStroke(dp(1), Color.argb(95, 255, 255, 255))
+            }
+        }
+        brandRow.addView(brandLogo, LinearLayout.LayoutParams(dp(58), dp(58)).apply {
+            rightMargin = dp(13)
+        })
+        val brandText = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        brandText.addView(label("ReciPay", 27, Color.WHITE, true))
+        brandText.addView(label("GESTÃO DE DESPESAS  •  SUPERVISOR", 12, Color.rgb(233, 213, 255), true).apply {
             setPadding(0, dp(3), 0, 0)
         })
+        brandRow.addView(brandText, LinearLayout.LayoutParams(0, -2, 1f))
+        header.addView(brandRow)
         screenRoot.addView(header)
 
         val scroll = ScrollView(this)
@@ -671,6 +695,27 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun themedSpinnerAdapter(items: List<String>): ArrayAdapter<String> =
+        object : ArrayAdapter<String>(this, android.R.layout.simple_spinner_item, items) {
+            override fun getView(position: Int, convertView: android.view.View?, parent: android.view.ViewGroup): android.view.View {
+                return super.getView(position, convertView, parent).apply {
+                    (this as? TextView)?.setTextColor(ink)
+                }
+            }
+
+            override fun getDropDownView(position: Int, convertView: android.view.View?, parent: android.view.ViewGroup): android.view.View {
+                return super.getDropDownView(position, convertView, parent).apply {
+                    (this as? TextView)?.apply {
+                        setTextColor(ink)
+                        setPadding(dp(14), dp(12), dp(14), dp(12))
+                    }
+                    setBackgroundColor(Color.rgb(23, 14, 43))
+                }
+            }
+        }.apply {
+            setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        }
+
     private fun refreshCollaboratorSpinner() {
         collaboratorOptions = database.listCollaborators()
         val labels = if (collaboratorOptions.isEmpty()) listOf("Cadastre primeiro um colaborador")
@@ -707,7 +752,18 @@ class MainActivity : Activity() {
         content.addView(fieldLabel("Filtrar por situação"))
         val statusFilter = Spinner(this)
         val statusOptions = listOf("Todos os status", "Pendente", "Parcial", "Pago")
-        statusFilter.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, statusOptions)
+        statusFilter.adapter = themedSpinnerAdapter(statusOptions)
+        statusFilter.background = GradientDrawable().apply {
+            setColor(Color.rgb(17, 10, 34))
+            cornerRadius = dp(10).toFloat()
+            setStroke(dp(1), Color.rgb(73, 54, 101))
+        }
+        statusFilter.setPadding(dp(12), dp(8), dp(12), dp(8))
+        statusFilter.popupBackground = GradientDrawable().apply {
+            setColor(Color.rgb(23, 14, 43))
+            cornerRadius = dp(10).toFloat()
+            setStroke(dp(1), Color.rgb(73, 54, 101))
+        }
         content.addView(statusFilter, spaced())
 
         val listContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
