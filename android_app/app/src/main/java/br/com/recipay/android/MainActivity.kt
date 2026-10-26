@@ -9,6 +9,8 @@ import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.text.InputType
 import android.view.Gravity
 import android.widget.ArrayAdapter
@@ -45,8 +47,36 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        database = ReceiptDatabase(this)
-        renderHome()
+        showIntro()
+        Handler(Looper.getMainLooper()).postDelayed({
+            if (!isFinishing && !isDestroyed) {
+                database = ReceiptDatabase(this)
+                renderHome()
+            }
+        }, 1100)
+    }
+
+    private fun showIntro() {
+        val intro = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setBackgroundColor(Color.rgb(5, 2, 8))
+            setPadding(dp(56), dp(56), dp(56), dp(56))
+        }
+        val logo = android.widget.ImageView(this).apply {
+            setImageResource(R.drawable.recipay_launcher_foreground)
+            scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
+            contentDescription = "Logo ReciPay"
+        }
+        intro.addView(logo, LinearLayout.LayoutParams(dp(230), dp(230)))
+        intro.addView(label("ReciPay", 28, Color.WHITE, true).apply {
+            gravity = Gravity.CENTER
+            setPadding(0, dp(18), 0, dp(4))
+        })
+        intro.addView(label("GESTÃO FINANCEIRA SIMPLES", 11, Color.rgb(180, 130, 255), true).apply {
+            gravity = Gravity.CENTER
+        })
+        setContentView(intro)
     }
 
     private lateinit var screenRoot: LinearLayout
