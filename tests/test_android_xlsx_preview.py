@@ -73,7 +73,7 @@ class TestAndroidXlsxPreview(unittest.TestCase):
         ws = wb["_recipay"]
         for row in ws.iter_rows():
             if row[0].value == "dados":
-                row[2] = row[2].value.replace("12550", "22550")
+                row[2].value = row[2].value.replace("12550", "22550")
         wb.save(self.path)
         with self.assertRaisesRegex(ValueError, "integridade"):
             ler_previa(self.path)
@@ -90,7 +90,7 @@ class TestAndroidXlsxPreview(unittest.TestCase):
         ws = wb["_recipay"]
         for row in ws.iter_rows():
             if str(row[0].value).startswith("comp:"):
-                row[2] = base64.b64encode(b"alterado").decode("ascii")
+                row[2].value = base64.b64encode(b"alterado").decode("ascii")
         wb.save(self.path)
         with self.assertRaisesRegex(ValueError, "Comprovante"):
             ler_previa(self.path)
