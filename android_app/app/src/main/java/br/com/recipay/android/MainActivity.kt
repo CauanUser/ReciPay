@@ -251,7 +251,7 @@ class MainActivity : Activity() {
                         pixKey, pixHolder
                     )
                     toast("Colaborador cadastrado neste celular.")
-                    renderReceipts()
+                    navigate("people")
                 } catch (_: android.database.sqlite.SQLiteConstraintException) {
                     toast("Já existe um colaborador com esse nome.")
                 } catch (error: Exception) {
@@ -308,7 +308,7 @@ class MainActivity : Activity() {
             statusLabel.text = "Comprovante obrigatório."
             statusLabel.setTextColor(muted)
             toast("Despesa salva neste celular.")
-            renderReceipts()
+            navigate("expenses")
         } catch (error: Exception) {
             toast(error.message ?: "Não foi possível salvar a despesa.")
         }
@@ -376,7 +376,7 @@ class MainActivity : Activity() {
                         try {
                             val result = database.importPaymentReturn(preview, File(filesDir, "payment_proofs"))
                             toast("Retorno processado: ${result.importedTransfers} novo(s), ${result.ignoredTransfers} repetido(s).")
-                            renderReceipts()
+                            navigate("expenses")
                         } catch (error: Exception) {
                             toast(error.message ?: "Não foi possível importar o retorno.")
                         }
@@ -405,56 +405,27 @@ class MainActivity : Activity() {
     }
 
     private fun renderReceipts() {
-        if (!::content.isInitialized) return
-        // Keep the title and form, replacing only the list cards below them.
-        val listStart = 6
-        if (content.childCount > listStart) {
-            content.removeViews(listStart, content.childCount - listStart)
-        }
-        val collaborators = database.listCollaborators()
-        refreshCollaboratorSpinner()
-        content.addView(label("Colaboradores e chaves Pix", 20, ink, true).apply {
-            setPadding(dp(2), dp(8), 0, dp(10))
-        })
-        if (collaborators.isEmpty()) {
-            val empty = card()
-            empty.addView(label("Nenhum colaborador cadastrado ainda.", 14, muted, false))
-            content.addView(empty, spaced())
-        } else {
-            collaborators.forEach { collaborator ->
-                val item = card()
-                item.addView(label(collaborator.name, 16, ink, true))
-                if (collaborator.team.isNotBlank()) {
-                    item.addView(label("Equipe: ${collaborator.team}", 13, muted, false).apply { setPadding(0, dp(3), 0, 0) })
-                }
-                item.addView(label("${collaborator.pixType}: ${collaborator.pixKey}", 14, blue, true).apply { setPadding(0, dp(5), 0, 0) })
-                item.addView(label("Titular: ${collaborator.pixHolder}", 13, muted, false).apply { setPadding(0, dp(3), 0, 0) })
-                content.addView(item, spaced())
-            }
-        }
-
-        content.addView(label("Despesas", 20, ink, true).apply {
-            setPadding(dp(2), dp(8), 0, dp(10))
-        })
+        content.removeAllViews()
         val receipts = database.listReceipts()
+        content.addView(label("Despesas", 24, ink, true))
+        content.addView(label("Consulte valores, comprovantes e o andamento de cada reembolso.", 14, muted, false).apply { setPadding(0, dp(5), 0, dp(16)) })
+        content.addView(actionButton("＋  Registrar despesa").apply { setOnClickListener { navigate("new_expense") } }, spaced())
+        val total = receipts.fold(0L) { sum, r -> Math.addExact(sum, r.amountCents) }
+        val pending = receipts.sumOf { database.paymentStatus(it.externalId).balanceCents }
+        content.addView(label("${receipts.size} despesa(s) · total ${money(total)} · pendente ${money(pending)}", 13, muted, true).apply { setPadding(0, dp(8), 0, dp(12)) })
         if (receipts.isEmpty()) {
-            val empty = card()
-            empty.addView(label("Nenhuma despesa cadastrada ainda.", 14, muted, false))
-            content.addView(empty, spaced())
+            content.addView(emptyState("Nenhuma despesa registrada. Toque em “Registrar despesa” para adicionar a primeira."))
             return
         }
         receipts.forEach { receipt ->
             val item = card()
+            val payment = database.paymentStatus(receipt.externalId)
             item.addView(label(receipt.collaborator, 16, ink, true))
-            item.addView(label(money(receipt.amountCents), 20, blue, true).apply {
-                setPadding(0, dp(5), 0, 0)
-            })
+            item.addView(label(money(receipt.amountCents), 21, blue, true).apply { setPadding(0, dp(5), 0, 0) })
             item.addView(label(receipt.description, 14, ink, false).apply { setPadding(0, dp(4), 0, 0) })
             item.addView(label("Data: ${receipt.expenseDate}", 12, muted, false).apply { setPadding(0, dp(5), 0, 0) })
-            item.addView(label("Comprovante anexado", 12, green, true).apply { setPadding(0, dp(5), 0, 0) })
-            val payment = database.paymentStatus(receipt.externalId)
-            item.addView(label("Status: ${payment.status}", 13, if (payment.status == "Pago") green else blue, true).apply { setPadding(0, dp(5), 0, 0) })
-            item.addView(label("Pago: ${money(payment.paidCents)} · Saldo: ${money(payment.balanceCents)}", 12, muted, false).apply { setPadding(0, dp(3), 0, 0) })
+            item.addView(statusChip(payment.status, payment.status))
+            item.addView(label("Pago: ${money(payment.paidCents)} · Saldo: ${money(payment.balanceCents)}", 13, muted, false).apply { setPadding(0, dp(5), 0, 0) })
             content.addView(item, spaced())
         }
     }
