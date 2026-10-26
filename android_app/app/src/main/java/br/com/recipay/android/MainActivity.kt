@@ -139,6 +139,16 @@ class MainActivity : Activity() {
         summary.addView(label("${receipts.size} despesas  ·  ${collaborators.size} colaboradores", 13, muted, false))
         content.addView(summary, spaced())
 
+        val pendingCount = receipts.count { database.paymentStatus(it.externalId).status.equals("Pendente", ignoreCase = true) }
+        val partialCount = receipts.count { database.paymentStatus(it.externalId).status.equals("Parcial", ignoreCase = true) }
+        val paidCount = receipts.count { database.paymentStatus(it.externalId).status.equals("Pago", ignoreCase = true) }
+        val statusSummary = card()
+        statusSummary.addView(label("Situação dos pagamentos", 16, ink, true))
+        statusSummary.addView(label("Pendentes: $pendingCount", 14, red, true).apply { setPadding(0, dp(8), 0, 0) })
+        statusSummary.addView(label("Parciais: $partialCount", 14, blue, true).apply { setPadding(0, dp(5), 0, 0) })
+        statusSummary.addView(label("Pagas: $paidCount", 14, green, true).apply { setPadding(0, dp(5), 0, 0) })
+        content.addView(statusSummary, spaced())
+
         content.addView(label("Ações rápidas", 18, ink, true).apply { setPadding(0, dp(12), 0, dp(8)) })
         val add = actionButton("+ Cadastrar despesa")
         add.setOnClickListener { showScreen("new") }
