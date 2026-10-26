@@ -61,7 +61,19 @@ class ReceiptDatabase(context: Context) : SQLiteOpenHelper(context, "recipay_sup
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        if (oldVersion < 2) createCollaboratorsTable(db)
+        if (oldVersion < 2) {
+            db.execSQL(
+                """CREATE TABLE IF NOT EXISTS collaborators (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+                    team TEXT NOT NULL DEFAULT '',
+                    pix_type TEXT NOT NULL,
+                    pix_key TEXT NOT NULL,
+                    pix_holder TEXT NOT NULL,
+                    created_at INTEGER NOT NULL
+                )""".trimIndent()
+            )
+        }
         if (oldVersion < 3) {
             db.execSQL("ALTER TABLE receipts ADD COLUMN collaborator_id INTEGER")
             db.execSQL(
