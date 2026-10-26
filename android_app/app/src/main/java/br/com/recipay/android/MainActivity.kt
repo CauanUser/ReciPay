@@ -116,6 +116,10 @@ class MainActivity : Activity() {
         exportButton.setOnClickListener { exportReceipts() }
         content.addView(exportButton, spaced())
 
+        val importReturnButton = actionButton("Importar retorno do Gestor (.xlsx)")
+        importReturnButton.setOnClickListener { choosePaymentReturn() }
+        content.addView(importReturnButton, spaced())
+
         content.addView(label("Despesas salvas neste celular", 20, ink, true).apply {
             setPadding(dp(2), dp(8), 0, dp(10))
         })
@@ -233,6 +237,14 @@ class MainActivity : Activity() {
         startActivityForResult(intent, REQUEST_PHOTO)
     }
 
+    private fun choosePaymentReturn() {
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        }
+        startActivityForResult(intent, REQUEST_RETURN)
+    }
+
     private fun exportReceipts() {
         if (database.listReceipts().isEmpty()) {
             toast("Cadastre pelo menos uma despesa antes de exportar.")
@@ -260,6 +272,33 @@ class MainActivity : Activity() {
                 toast("Planilha criada. Envie o arquivo ao Gestor para importar no Recipay.")
             } catch (error: Exception) {
                 toast(error.message ?: "Não foi possível exportar as despesas.")
+            }
+            return
+        }
+        if (requestCode == REQUEST_RETURN) {
+            try {
+                val uri = data.data!!
+                val preview = contentResolver.openInputStream(uri).use { input ->
+                    if (input == null) error("Não foi possível abrir o arquivo.")
+                    XlsxReturnReader.read(input, uri.lastPathSegment ?: "retorno.xlsx", SUPERVISOR_ID)
+                }
+                val total = money(preview.totalCents)
+                AlertDialog.Builder(this)
+                    .setTitle("Confirmar retorno do Gestor")
+                    .setMessage("Gestor: ${preview.managerName}\nPagamentos no arquivo: ${preview.transfers.size}\nTotal: $total\n\nO app validou o arquivo e os comprovantes. Deseja importar e atualizar os saldos?")
+                    .setNegativeButton("Cancelar", null)
+                    .setPositiveButton("Importar") { _, _ ->
+                        try {
+                            val result = database.importPaymentReturn(preview, File(filesDir, "payment_proofs"))
+                            toast("Retorno processado: ${result.importedTransfers} novo(s), ${result.ignoredTransfers} repetido(s).")
+                            renderReceipts()
+                        } catch (error: Exception) {
+                            toast(error.message ?: "Não foi possível importar o retorno.")
+                        }
+                    }
+                    .show()
+            } catch (error: Exception) {
+                toast(error.message ?: "Arquivo de retorno inválido.")
             }
             return
         }
@@ -328,6 +367,9 @@ class MainActivity : Activity() {
             item.addView(label(receipt.description, 14, ink, false).apply { setPadding(0, dp(4), 0, 0) })
             item.addView(label("Data: ${receipt.expenseDate}", 12, muted, false).apply { setPadding(0, dp(5), 0, 0) })
             item.addView(label("Comprovante anexado", 12, green, true).apply { setPadding(0, dp(5), 0, 0) })
+            val payment = database.paymentStatus(receipt.externalId)
+            item.addView(label("Status: ${payment.status}", 13, if (payment.status == "Pago") green else blue, true).apply { setPadding(0, dp(5), 0, 0) })
+            item.addView(label("Pago: ${money(payment.paidCents)} · Saldo: ${money(payment.balanceCents)}", 12, muted, false).apply { setPadding(0, dp(3), 0, 0) })
             content.addView(item, spaced())
         }
     }
@@ -396,5 +438,7 @@ class MainActivity : Activity() {
     companion object {
         private const val REQUEST_PHOTO = 1043
         private const val REQUEST_EXPORT = 1044
+        private const val REQUEST_RETURN = 1045
+        private const val SUPERVISOR_ID = "00000000-0000-4000-8000-000000000001"
     }
 }
