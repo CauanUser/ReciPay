@@ -235,6 +235,29 @@ class MainActivity : Activity() {
             val edit = actionButton("Editar colaborador")
             edit.setOnClickListener { openCollaboratorDialog(person) }
             item.addView(edit, matchWrap())
+            val delete = actionButton("Excluir colaborador").apply {
+                background = GradientDrawable().apply {
+                    setColor(red)
+                    cornerRadius = dp(12).toFloat()
+                }
+            }
+            delete.setOnClickListener {
+                AlertDialog.Builder(this)
+                    .setTitle("Excluir colaborador?")
+                    .setMessage("Deseja excluir ${person.name}? Para proteger o histórico, só é possível excluir quem ainda não possui despesas registradas.")
+                    .setNegativeButton("Cancelar", null)
+                    .setPositiveButton("Excluir") { _, _ ->
+                        try {
+                            database.deleteCollaborator(person.id)
+                            toast("Colaborador excluído.")
+                            showScreen("people")
+                        } catch (error: Exception) {
+                            toast(error.message ?: "Não foi possível excluir o colaborador.")
+                        }
+                    }
+                    .show()
+            }
+            item.addView(delete, matchWrap())
             content.addView(item, spaced())
         }
     }
@@ -280,9 +303,7 @@ class MainActivity : Activity() {
         val team = addInput("Equipe (opcional)")
         val roleLabel = label("Função / cargo", 13, ink, true).apply { setPadding(0, dp(8), 0, dp(4)) }
         form.addView(roleLabel)
-        val role = Spinner(this)
-        role.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, listOf("Funcionário", "Auxiliar", "Técnico", "Motorista", "Encarregado", "Supervisor", "Gestor", "Outro"))
-        form.addView(role, fieldParams())
+        val role = addInput("Ex.: Eletricista, Motorista, Encarregado")
         val typeLabel = label("Tipo da chave Pix", 13, ink, true).apply {
             setPadding(0, dp(8), 0, dp(4))
         }
@@ -296,8 +317,7 @@ class MainActivity : Activity() {
         if (existing != null) {
             name.setText(existing.name)
             team.setText(existing.team)
-            val roleIndex = (role.adapter as ArrayAdapter<String>).getPosition(existing.role)
-            if (roleIndex >= 0) role.setSelection(roleIndex)
+            role.setText(existing.role)
             val typeIndex = listOf("CPF", "CNPJ", "EMAIL", "TELEFONE", "ALEATORIA").indexOf(existing.pixType)
             if (typeIndex >= 0) type.setSelection(typeIndex)
             key.setText(existing.pixKey)
@@ -319,13 +339,13 @@ class MainActivity : Activity() {
                     val pixType = listOf("CPF", "CNPJ", "EMAIL", "TELEFONE", "ALEATORIA")[type.selectedItemPosition]
                     if (existing == null) {
                         database.addCollaborator(
-                            collaboratorName, team.text.toString(), role.selectedItem.toString(),
+                            collaboratorName, team.text.toString(), role.text.toString().trim(),
                             pixType, pixKey, pixHolder
                         )
                         toast("Colaborador cadastrado neste celular.")
                     } else {
                         database.updateCollaborator(
-                            existing.id, collaboratorName, team.text.toString(), role.selectedItem.toString(),
+                            existing.id, collaboratorName, team.text.toString(), role.text.toString().trim(),
                             pixType, pixKey, pixHolder
                         )
                         toast("Dados do colaborador atualizados.")
@@ -355,7 +375,12 @@ class MainActivity : Activity() {
             toast("Anexe o comprovante antes de salvar.")
             return
         }
-        val normalizedAmount = amountText.replace(".", "").replace(",", ".")
+        // Aceita formatos brasileiros (250,99 / 1.250,99) e ponto decimal (250.99).
+        val normalizedAmount = when {
+            amountText.contains(",") -> amountText.replace(".", "").replace(",", ".")
+            amountText.count { it == '.' } == 1 && amountText.substringAfterLast('.').length in 1..2 -> amountText
+            else -> amountText.replace(".", "")
+        }
         val amountCents = try {
             val value = java.math.BigDecimal(normalizedAmount).movePointRight(2).setScale(0, java.math.RoundingMode.HALF_UP).longValueExact()
             if (value <= 0L) throw IllegalArgumentException()

@@ -156,6 +156,21 @@ class ReceiptDatabase(context: Context) : SQLiteOpenHelper(context, "recipay_sup
         )
     }
 
+    /** Exclui apenas colaboradores sem despesas vinculadas para preservar o histórico. */
+    fun deleteCollaborator(id: Long) {
+        val person = listCollaborators().firstOrNull { it.id == id }
+            ?: error("Colaborador não encontrado.")
+        val linkedReceipts = readableDatabase.rawQuery(
+            "SELECT COUNT(*) FROM receipts WHERE collaborator_id = ? OR collaborator = ? COLLATE NOCASE",
+            arrayOf(id.toString(), person.name)
+        ).use { cursor -> cursor.moveToFirst(); cursor.getLong(0) }
+        require(linkedReceipts == 0L) {
+            "Este colaborador possui despesas registradas. Para preservar o histórico financeiro, não é possível excluí-lo."
+        }
+        val deleted = writableDatabase.delete("collaborators", "id = ?", arrayOf(id.toString()))
+        require(deleted == 1) { "Colaborador não encontrado." }
+    }
+
     fun listCollaborators(): List<LocalCollaborator> {
         val result = mutableListOf<LocalCollaborator>()
         readableDatabase.query(
