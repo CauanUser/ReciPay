@@ -183,53 +183,116 @@ class MainActivity : Activity() {
         val receipts = database.listReceipts()
         val collaborators = database.listCollaborators()
         val total = receipts.fold(0L) { sum, item -> Math.addExact(sum, item.amountCents) }
-        content.addView(label("Olá, Supervisor 👋", 24, ink, true))
-        content.addView(label("Aqui está o resumo das suas despesas.", 14, muted, false).apply {
-            setPadding(0, dp(5), 0, dp(18))
-        })
-        val summary = card()
-        summary.addView(label("Total registrado", 14, muted, false))
-        summary.addView(label(money(total), 28, blue, true).apply { setPadding(0, dp(5), 0, dp(3)) })
-        summary.addView(label("${receipts.size} despesas  ·  ${collaborators.size} colaboradores", 13, muted, false))
-        content.addView(summary, spaced())
-
-        val pendingCount = receipts.count { database.paymentStatus(it.externalId).status.equals("Pendente", ignoreCase = true) }
-        val partialCount = receipts.count { database.paymentStatus(it.externalId).status.equals("Parcial", ignoreCase = true) }
-        val paidCount = receipts.count { database.paymentStatus(it.externalId).status.equals("Pago", ignoreCase = true) }
         val paymentTotals = receipts.map { database.paymentStatus(it.externalId) }
+        val pendingCount = paymentTotals.count { it.status.equals("Pendente", ignoreCase = true) }
+        val partialCount = paymentTotals.count { it.status.equals("Parcial", ignoreCase = true) }
+        val paidCount = paymentTotals.count { it.status.equals("Pago", ignoreCase = true) }
         val paidAmount = paymentTotals.fold(0L) { sum, status -> Math.addExact(sum, status.paidCents) }
         val openAmount = paymentTotals.fold(0L) { sum, status -> Math.addExact(sum, status.balanceCents) }
-        val statusSummary = card()
-        statusSummary.addView(label("Situação dos pagamentos", 16, ink, true))
-        statusSummary.addView(label("Pendentes: $pendingCount", 14, red, true).apply { setPadding(0, dp(8), 0, 0) })
-        statusSummary.addView(label("Parciais: $partialCount", 14, blue, true).apply { setPadding(0, dp(5), 0, 0) })
-        statusSummary.addView(label("Pagas: $paidCount", 14, green, true).apply { setPadding(0, dp(5), 0, 0) })
-        statusSummary.addView(label("Valor já pago: ${money(paidAmount)}", 13, green, true).apply { setPadding(0, dp(9), 0, 0) })
-        statusSummary.addView(label("Saldo em aberto: ${money(openAmount)}", 13, red, true).apply { setPadding(0, dp(4), 0, 0) })
-        content.addView(statusSummary, spaced())
 
-        content.addView(label("Ações rápidas", 18, ink, true).apply { setPadding(0, dp(12), 0, dp(8)) })
+        content.addView(label("Olá, Supervisor 👋", 24, ink, true))
+        content.addView(label("Resumo financeiro e atalhos para o seu trabalho.", 14, muted, false).apply {
+            setPadding(0, dp(5), 0, dp(16))
+        })
+
+        val hero = card().apply {
+            background = GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                intArrayOf(Color.rgb(75, 29, 130), Color.rgb(39, 17, 68))
+            ).apply {
+                cornerRadius = dp(20).toFloat()
+                setStroke(dp(1), Color.rgb(117, 74, 170))
+            }
+            setPadding(dp(18), dp(18), dp(18), dp(18))
+        }
+        hero.addView(label("TOTAL REGISTRADO", 12, Color.rgb(221, 204, 250), true))
+        hero.addView(label(money(total), 30, Color.WHITE, true).apply {
+            setPadding(0, dp(5), 0, dp(4))
+        })
+        hero.addView(label("${receipts.size} despesas  ·  ${collaborators.size} colaboradores", 13, Color.rgb(221, 204, 250), false))
+        content.addView(hero, spaced())
+
+        val moneyRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        fun miniMetric(title: String, value: String, valueColor: Int): LinearLayout {
+            val metric = card().apply { setPadding(dp(13), dp(14), dp(13), dp(14)) }
+            metric.addView(label(title, 12, muted, true))
+            metric.addView(label(value, 18, valueColor, true).apply { setPadding(0, dp(6), 0, 0) })
+            return metric
+        }
+        moneyRow.addView(miniMetric("JÁ PAGO", money(paidAmount), green), LinearLayout.LayoutParams(0, -2, 1f).apply {
+            rightMargin = dp(6)
+        })
+        moneyRow.addView(miniMetric("EM ABERTO", money(openAmount), red), LinearLayout.LayoutParams(0, -2, 1f).apply {
+            leftMargin = dp(6)
+        })
+        content.addView(moneyRow, spaced())
+
+        content.addView(label("Situação das despesas", 18, ink, true).apply {
+            setPadding(0, dp(8), 0, dp(9))
+        })
+        val statusCard = card().apply { setPadding(dp(14), dp(15), dp(14), dp(15)) }
+        val statusRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        fun statusMetric(title: String, count: Int, color: Int): LinearLayout {
+            val metric = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+            }
+            metric.addView(label(count.toString(), 22, color, true).apply { gravity = Gravity.CENTER })
+            metric.addView(label(title, 11, muted, false).apply {
+                gravity = Gravity.CENTER
+                setPadding(0, dp(3), 0, 0)
+            })
+            return metric
+        }
+        statusRow.addView(statusMetric("Pendentes", pendingCount, red), LinearLayout.LayoutParams(0, -2, 1f))
+        statusRow.addView(statusMetric("Parciais", partialCount, blue), LinearLayout.LayoutParams(0, -2, 1f))
+        statusRow.addView(statusMetric("Pagas", paidCount, green), LinearLayout.LayoutParams(0, -2, 1f))
+        statusCard.addView(statusRow)
+        content.addView(statusCard, spaced())
+
+        content.addView(label("Ações rápidas", 18, ink, true).apply {
+            setPadding(0, dp(8), 0, dp(9))
+        })
         val add = actionButton("+ Cadastrar despesa")
         add.setOnClickListener { showScreen("new") }
         content.addView(add, spaced())
-        val people = actionButton("Cadastrar colaborador")
-        people.setOnClickListener { showScreen("people"); openCollaboratorDialog() }
-        content.addView(people, spaced())
-        val export = actionButton("Preparar arquivo para o Gestor")
-        export.setOnClickListener { showScreen("files") }
-        content.addView(export, spaced())
 
-        content.addView(label("Atividade recente", 18, ink, true).apply { setPadding(0, dp(12), 0, dp(8)) })
+        fun secondaryAction(text: String, onClick: () -> Unit) {
+            val button = actionButton(text).apply {
+                background = GradientDrawable().apply {
+                    setColor(Color.rgb(23, 14, 43))
+                    cornerRadius = dp(12).toFloat()
+                    setStroke(dp(1), Color.rgb(73, 54, 101))
+                }
+                setTextColor(ink)
+                setOnClickListener { onClick() }
+            }
+            content.addView(button, spaced())
+        }
+        secondaryAction("Cadastrar colaborador") {
+            showScreen("people")
+            openCollaboratorDialog()
+        }
+        secondaryAction("Preparar arquivo para o Gestor") { showScreen("files") }
+
+        content.addView(label("Atividade recente", 18, ink, true).apply {
+            setPadding(0, dp(8), 0, dp(9))
+        })
         if (receipts.isEmpty()) {
             val empty = card()
-            empty.addView(label("Ainda não há despesas. Comece cadastrando sua primeira despesa.", 14, muted, false))
+            empty.addView(label("Tudo pronto para começar", 16, ink, true))
+            empty.addView(label("Cadastre uma despesa e anexe o comprovante para iniciar seu controle.", 13, muted, false).apply {
+                setPadding(0, dp(5), 0, 0)
+            })
             content.addView(empty, spaced())
         } else {
             receipts.take(3).forEach { receipt ->
-                val item = card()
+                val item = card().apply { setPadding(dp(15), dp(14), dp(15), dp(14)) }
                 item.addView(label(receipt.collaborator, 15, ink, true))
                 item.addView(label(money(receipt.amountCents), 19, blue, true).apply { setPadding(0, dp(4), 0, 0) })
-                item.addView(label("${receipt.description} · ${receipt.expenseDate}", 13, muted, false).apply { setPadding(0, dp(3), 0, 0) })
+                item.addView(label("${receipt.description} · ${receipt.expenseDate}", 13, muted, false).apply {
+                    setPadding(0, dp(3), 0, 0)
+                })
                 content.addView(item, spaced())
             }
             val all = actionButton("Ver todas as despesas")
