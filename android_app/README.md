@@ -1,34 +1,37 @@
-# Recipay Android — protótipo de prévia
+# Recipay Android — área do Supervisor
 
-Este é um aplicativo Android nativo inicial, separado do aplicativo Windows. Ele não altera o banco SQLite nem o fluxo atual do Windows.
+Aplicativo Android nativo destinado somente ao Supervisor. O Gestor continuará usando o aplicativo Windows. A troca entre os dois lados continuará sendo feita por arquivos XLSX, sem exigir servidor pago.
 
 ## O que funciona nesta etapa
 
-- Selecionar um arquivo XLSX pelo seletor de documentos do Android.
-- Abrir o pacote XLSX e localizar as abas `Recibos` e `_recipay`.
-- Validar a marca e versão do formato, hash do JSON, referências e valores visíveis, IDs de colaboradores, total do lote e integridade dos comprovantes embutidos.
-- Mostrar supervisor, identificador do lote, quantidade, total e lista de recibos validados.
-- Rejeitar arquivos inválidos sem gravar dados.
+- Cadastro local de uma despesa com colaborador, valor, descrição e data.
+- Comprovante em imagem obrigatório para salvar uma despesa.
+- Cópia da imagem para o armazenamento privado do aplicativo.
+- Persistência dos registros em SQLite no próprio celular.
+- Lista das despesas cadastradas, carregada novamente do banco ao abrir a tela.
 
-## Limites importantes
+## Limites desta etapa
 
-- A tela é uma **prévia somente de leitura**. Não existe banco local Android, fila de pagamentos, registro de Pix, importação persistente nem exportação de retorno nesta etapa.
-- O app não realiza transferências bancárias.
-- A compatibilidade precisa ser comprovada em dispositivos/emuladores e com arquivos de teste gerados pelo exportador Windows. A compilação do APK, sozinha, não comprova todo o fluxo de negócio.
-- Não usar dados financeiros reais em testes de desenvolvimento.
+- Ainda não há cadastro completo de colaboradores/Pix.
+- Ainda não há exportação XLSX no Android compatível com o contrato atual do Windows.
+- Ainda não há importação do retorno do Gestor, atualização de pagamentos parciais ou sincronização automática.
+- A imagem do comprovante é guardada localmente; backup/recuperação e criptografia dos anexos no Android ainda precisam ser implementados.
+- O aplicativo não realiza transferências Pix.
+- O build do CI comprova compilação, não testes em aparelho real. Validar com dados fictícios antes de usar.
+
+## Próximas etapas
+
+1. Completar cadastro de colaboradores e dados Pix necessários para o arquivo de troca.
+2. Implementar exportação XLSX no formato exato do ReciPay Windows e testar a importação no Windows.
+3. Implementar importação do retorno do Gestor, com prevenção de duplicidade e pagamentos parciais.
+4. Adicionar testes de integração e validar o fluxo em aparelho Android.
 
 ## Compilar
 
-O workflow GitHub Actions `Android - build APK` compila o APK de depuração e guarda o artefato por 14 dias quando a compilação passa.
+O workflow GitHub Actions Android - build APK compila o APK de depuração e guarda o artefato por 14 dias quando a compilação passa.
 
 Localmente, com JDK 17, Android SDK e Gradle 8.9 instalados:
 
-```bash
-gradle -p android_app assembleDebug
-```
+    gradle -p android_app assembleDebug
 
-O APK, quando a compilação termina com sucesso, fica em:
-
-```
-android_app/app/build/outputs/apk/debug/app-debug.apk
-```
+O APK é gerado em android_app/app/build/outputs/apk/debug/app-debug.apk.
