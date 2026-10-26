@@ -152,7 +152,8 @@ class MainActivity : Activity() {
                 try {
                     database.addCollaborator(
                         collaboratorName, team.text.toString(),
-                        type.selectedItem.toString(), pixKey, pixHolder
+                        listOf("CPF", "CNPJ", "EMAIL", "TELEFONE", "ALEATORIA")[type.selectedItemPosition],
+                        pixKey, pixHolder
                     )
                     toast("Colaborador cadastrado neste celular.")
                     renderReceipts()
