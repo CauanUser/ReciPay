@@ -580,21 +580,33 @@ class MainActivity : Activity() {
         val search = field("Buscar por colaborador, descrição ou data")
         search.setCompoundDrawablePadding(dp(8))
         content.addView(search, spaced())
+
+        content.addView(fieldLabel("Filtrar por situação"))
+        val statusFilter = Spinner(this)
+        val statusOptions = listOf("Todos os status", "Pendente", "Parcial", "Pago")
+        statusFilter.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, statusOptions)
+        content.addView(statusFilter, spaced())
+
         val listContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         content.addView(listContainer)
 
-        fun renderItems(rawQuery: String) {
+        fun renderItems(rawQuery: String, rawStatus: String) {
             listContainer.removeAllViews()
             val query = rawQuery.trim().lowercase(Locale.ROOT)
+            val selectedStatus = rawStatus.lowercase(Locale.ROOT)
             val filtered = receipts.filter { receipt ->
-                query.isBlank() || receipt.collaborator.lowercase(Locale.ROOT).contains(query) ||
+                val matchesQuery = query.isBlank() ||
+                    receipt.collaborator.lowercase(Locale.ROOT).contains(query) ||
                     receipt.description.lowercase(Locale.ROOT).contains(query) ||
                     receipt.expenseDate.lowercase(Locale.ROOT).contains(query)
+                val paymentStatus = database.paymentStatus(receipt.externalId).status.lowercase(Locale.ROOT)
+                val matchesStatus = selectedStatus == "todos os status" || paymentStatus == selectedStatus
+                matchesQuery && matchesStatus
             }
             if (filtered.isEmpty()) {
                 val empty = card()
-                empty.addView(label(if (receipts.isEmpty()) "Nenhuma despesa cadastrada" else "Nenhum resultado encontrado", 16, ink, true))
-                empty.addView(label(if (receipts.isEmpty()) "Cadastre sua primeira despesa para começar." else "Tente outro nome, descrição ou data.", 13, muted, false).apply { setPadding(0, dp(5), 0, 0) })
+                empty.addView(label(if (receipts.isEmpty()) "Nenhuma despesa cadastrada" else "Nenhuma despesa encontrada", 16, ink, true))
+                empty.addView(label(if (receipts.isEmpty()) "Cadastre sua primeira despesa para começar." else "Tente outra busca ou selecione “Todos os status”.", 13, muted, false).apply { setPadding(0, dp(5), 0, 0) })
                 listContainer.addView(empty, spaced())
                 return
             }
@@ -642,9 +654,17 @@ class MainActivity : Activity() {
         search.addTextChangedListener(object : android.text.TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
-            override fun afterTextChanged(s: android.text.Editable?) { renderItems(s?.toString().orEmpty()) }
+            override fun afterTextChanged(s: android.text.Editable?) {
+                renderItems(s?.toString().orEmpty(), statusFilter.selectedItem?.toString().orEmpty())
+            }
         })
-        renderItems("")
+        statusFilter.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+            override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
+            override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: android.view.View?, position: Int, id: Long) {
+                renderItems(search.text.toString(), statusOptions[position])
+            }
+        }
+        renderItems("", statusOptions.first())
     }
 
     private fun card(): LinearLayout = LinearLayout(this).apply {
