@@ -25,7 +25,8 @@ import java.util.Locale
 class MainActivity : Activity() {
     private lateinit var database: ReceiptDatabase
     private lateinit var content: LinearLayout
-    private lateinit var collaboratorInput: EditText
+    private lateinit var collaboratorSpinner: Spinner
+    private var collaboratorOptions: List<LocalCollaborator> = emptyList()
     private lateinit var amountInput: EditText
     private lateinit var descriptionInput: EditText
     private lateinit var dateInput: EditText
@@ -77,7 +78,8 @@ class MainActivity : Activity() {
         })
 
         val form = card()
-        collaboratorInput = field("Nome do colaborador")
+        collaboratorSpinner = Spinner(this)
+        refreshCollaboratorSpinner()
         amountInput = field("Valor (ex.: 125,50)").apply {
             inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
         }
@@ -85,8 +87,8 @@ class MainActivity : Activity() {
         dateInput = field("Data (AAAA-MM-DD)").apply {
             setText(java.time.LocalDate.now().toString())
         }
-        form.addView(fieldLabel("Colaborador"))
-        form.addView(collaboratorInput, fieldParams())
+        form.addView(fieldLabel("Colaborador cadastrado"))
+        form.addView(collaboratorSpinner, fieldParams())
         form.addView(fieldLabel("Valor em reais"))
         form.addView(amountInput, fieldParams())
         form.addView(fieldLabel("Descrição"))
@@ -167,14 +169,14 @@ class MainActivity : Activity() {
     }
 
     private fun saveReceipt() {
-        val collaborator = collaboratorInput.text.toString().trim()
+        val selectedCollaborator = collaboratorOptions.getOrNull(collaboratorSpinner.selectedItemPosition)
         val amountText = amountInput.text.toString().trim()
         val description = descriptionInput.text.toString().trim()
         val date = dateInput.text.toString().trim()
         val photoUri = selectedPhotoUri
 
-        if (collaborator.isBlank() || amountText.isBlank() || description.isBlank() || date.isBlank()) {
-            toast("Preencha todos os campos.")
+        if (selectedCollaborator == null || amountText.isBlank() || description.isBlank() || date.isBlank()) {
+            toast(if (selectedCollaborator == null) "Cadastre um colaborador antes de registrar a despesa." else "Preencha todos os campos.")
             return
         }
         if (photoUri == null) {
@@ -204,8 +206,7 @@ class MainActivity : Activity() {
                 if (input == null) error("Não foi possível abrir o comprovante.")
                 attachment.outputStream().use { output -> input.copyTo(output) }
             }
-            database.addReceipt(collaborator, amountCents, description, date, attachment.absolutePath)
-            collaboratorInput.text.clear()
+            database.addReceipt(selectedCollaborator.id, selectedCollaborator.name, amountCents, description, date, attachment.absolutePath)
             amountInput.text.clear()
             descriptionInput.text.clear()
             dateInput.setText(java.time.LocalDate.now().toString())
@@ -240,6 +241,14 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun refreshCollaboratorSpinner() {
+        collaboratorOptions = database.listCollaborators()
+        val labels = if (collaboratorOptions.isEmpty()) listOf("Cadastre primeiro um colaborador")
+            else collaboratorOptions.map { it.name }
+        collaboratorSpinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, labels)
+        collaboratorSpinner.isEnabled = collaboratorOptions.isNotEmpty()
+    }
+
     private fun renderReceipts() {
         if (!::content.isInitialized) return
         // Keep the title and form, replacing only the list cards below them.
@@ -248,6 +257,7 @@ class MainActivity : Activity() {
             content.removeViews(listStart, content.childCount - listStart)
         }
         val collaborators = database.listCollaborators()
+        refreshCollaboratorSpinner()
         content.addView(label("Colaboradores e chaves Pix", 20, ink, true).apply {
             setPadding(dp(2), dp(8), 0, dp(10))
         })

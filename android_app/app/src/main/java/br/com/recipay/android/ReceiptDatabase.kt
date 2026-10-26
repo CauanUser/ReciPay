@@ -7,6 +7,7 @@ import android.database.sqlite.SQLiteOpenHelper
 
 data class LocalReceipt(
     val id: Long,
+    val collaboratorId: Long?,
     val collaborator: String,
     val amountCents: Long,
     val description: String,
@@ -24,12 +25,13 @@ data class LocalCollaborator(
     val pixHolder: String
 )
 
-class ReceiptDatabase(context: Context) : SQLiteOpenHelper(context, "recipay_supervisor.db", null, 2) {
+class ReceiptDatabase(context: Context) : SQLiteOpenHelper(context, "recipay_supervisor.db", null, 3) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
             """CREATE TABLE receipts (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 collaborator TEXT NOT NULL,
+                collaborator_id INTEGER,
                 amount_cents INTEGER NOT NULL CHECK(amount_cents > 0),
                 description TEXT NOT NULL,
                 expense_date TEXT NOT NULL,
@@ -56,6 +58,16 @@ class ReceiptDatabase(context: Context) : SQLiteOpenHelper(context, "recipay_sup
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
         if (oldVersion < 2) createCollaboratorsTable(db)
+        if (oldVersion < 3) {
+            db.execSQL("ALTER TABLE receipts ADD COLUMN collaborator_id INTEGER")
+            db.execSQL(
+                """UPDATE receipts SET collaborator_id = (
+                    SELECT collaborators.id FROM collaborators
+                    WHERE collaborators.name = receipts.collaborator COLLATE NOCASE
+                    LIMIT 1
+                ) WHERE collaborator_id IS NULL""".trimIndent()
+            )
+        }
     }
 
     fun addCollaborator(name: String, team: String, pixType: String, pixKey: String, pixHolder: String): Long {
@@ -88,6 +100,7 @@ class ReceiptDatabase(context: Context) : SQLiteOpenHelper(context, "recipay_sup
     }
 
     fun addReceipt(
+        collaboratorId: Long,
         collaborator: String,
         amountCents: Long,
         description: String,
@@ -96,6 +109,7 @@ class ReceiptDatabase(context: Context) : SQLiteOpenHelper(context, "recipay_sup
     ): Long {
         val values = ContentValues().apply {
             put("collaborator", collaborator)
+            put("collaborator_id", collaboratorId)
             put("amount_cents", amountCents)
             put("description", description)
             put("expense_date", expenseDate)
@@ -109,18 +123,19 @@ class ReceiptDatabase(context: Context) : SQLiteOpenHelper(context, "recipay_sup
         val result = mutableListOf<LocalReceipt>()
         readableDatabase.query(
             "receipts",
-            arrayOf("id", "collaborator", "amount_cents", "description", "expense_date", "attachment_path", "created_at"),
+            arrayOf("id", "collaborator_id", "collaborator", "amount_cents", "description", "expense_date", "attachment_path", "created_at"),
             null, null, null, null, "id DESC"
         ).use { cursor ->
             while (cursor.moveToNext()) {
                 result += LocalReceipt(
                     id = cursor.getLong(0),
-                    collaborator = cursor.getString(1),
-                    amountCents = cursor.getLong(2),
-                    description = cursor.getString(3),
-                    expenseDate = cursor.getString(4),
-                    attachmentPath = cursor.getString(5),
-                    createdAt = cursor.getLong(6)
+                    collaboratorId = if (cursor.isNull(1)) null else cursor.getLong(1),
+                    collaborator = cursor.getString(2),
+                    amountCents = cursor.getLong(3),
+                    description = cursor.getString(4),
+                    expenseDate = cursor.getString(5),
+                    attachmentPath = cursor.getString(6),
+                    createdAt = cursor.getLong(7)
                 )
             }
         }
