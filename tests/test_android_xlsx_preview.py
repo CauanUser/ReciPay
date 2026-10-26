@@ -68,6 +68,22 @@ class TestAndroidXlsxPreview(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "alterado"):
             ler_previa(self.path)
 
+    def test_duplicate_visible_receipt_row_is_rejected(self):
+        wb = load_workbook(self.path)
+        ws = wb["Recibos"]
+        ws.append([ws["A2"].value, ws["B2"].value, ws["C2"].value,
+                   ws["D2"].value, ws["E2"].value, ws["F2"].value, ws["G2"].value])
+        wb.save(self.path)
+        with self.assertRaisesRegex(ValueError, "duplicado"):
+            ler_previa(self.path)
+
+    def test_extra_visible_receipt_reference_is_rejected(self):
+        wb = load_workbook(self.path)
+        wb["Recibos"].append(["EXTRA123", "2026-10-26", "Pessoa", "A", "Extra", 10.00, "Teste"])
+        wb.save(self.path)
+        with self.assertRaisesRegex(ValueError, "extras"):
+            ler_previa(self.path)
+
     def test_tampered_internal_json_is_rejected(self):
         wb = load_workbook(self.path)
         ws = wb["_recipay"]
