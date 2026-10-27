@@ -27,7 +27,7 @@ object XlsxExportWriter {
 
         data class Attachment(val bytes: ByteArray, val hash: String, val extension: String)
         val attachments = receipts.associate { r ->
-            val files = r.attachmentPath.split('\\n').filter { it.isNotBlank() }.map { java.io.File(it) }
+            val files = r.attachmentPath.split('\n').filter { it.isNotBlank() }.map { java.io.File(it) }
             require(files.isNotEmpty() && files.all { it.isFile }) { "Comprovante da despesa de ${r.collaborator} não foi encontrado neste celular." }
             r.externalId to files.map { file ->
                 val bytes = file.readBytes()
