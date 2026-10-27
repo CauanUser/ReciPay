@@ -280,8 +280,10 @@ class ReceiptDatabase(context: Context) : SQLiteOpenHelper(context, "recipay_sup
             "SELECT COUNT(*) FROM payment_applications WHERE receipt_external_id = ?",
             arrayOf(receipt.externalId)
         ).use { cursor -> cursor.moveToFirst(); cursor.getLong(0) }
-        require(applications == 0L) {
-            "Esta despesa já possui pagamentos vinculados. Para preservar o histórico, seus dados não podem ser alterados."
+        if (applications > 0L) {
+            require(collaboratorId == receipt.collaboratorId && amountCents == receipt.amountCents) {
+                "Esta despesa já possui pagamentos vinculados. Para proteger o histórico, não é possível alterar colaborador ou valor; edite apenas a descrição ou a data."
+            }
         }
         val values = ContentValues().apply {
             put("collaborator_id", collaboratorId)
