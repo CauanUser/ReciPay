@@ -35,8 +35,9 @@ class MainActivity : Activity() {
     private lateinit var dateInput: EditText
     private lateinit var photoButton: Button
     private lateinit var statusLabel: TextView
-    private var selectedPhotoUri: Uri? = null
+    private var selectedPhotoUris: MutableList<Uri> = mutableListOf()
     private var pendingCameraUri: Uri? = null
+    private lateinit var photoCountInput: EditText
     private var currentScreen: String = "home"
 
     private val blue = Color.rgb(139, 92, 246)
@@ -183,53 +184,116 @@ class MainActivity : Activity() {
         val receipts = database.listReceipts()
         val collaborators = database.listCollaborators()
         val total = receipts.fold(0L) { sum, item -> Math.addExact(sum, item.amountCents) }
-        content.addView(label("Olá, Supervisor 👋", 24, ink, true))
-        content.addView(label("Aqui está o resumo das suas despesas.", 14, muted, false).apply {
-            setPadding(0, dp(5), 0, dp(18))
-        })
-        val summary = card()
-        summary.addView(label("Total registrado", 14, muted, false))
-        summary.addView(label(money(total), 28, blue, true).apply { setPadding(0, dp(5), 0, dp(3)) })
-        summary.addView(label("${receipts.size} despesas  ·  ${collaborators.size} colaboradores", 13, muted, false))
-        content.addView(summary, spaced())
-
-        val pendingCount = receipts.count { database.paymentStatus(it.externalId).status.equals("Pendente", ignoreCase = true) }
-        val partialCount = receipts.count { database.paymentStatus(it.externalId).status.equals("Parcial", ignoreCase = true) }
-        val paidCount = receipts.count { database.paymentStatus(it.externalId).status.equals("Pago", ignoreCase = true) }
         val paymentTotals = receipts.map { database.paymentStatus(it.externalId) }
+        val pendingCount = paymentTotals.count { it.status.equals("Pendente", ignoreCase = true) }
+        val partialCount = paymentTotals.count { it.status.equals("Parcial", ignoreCase = true) }
+        val paidCount = paymentTotals.count { it.status.equals("Pago", ignoreCase = true) }
         val paidAmount = paymentTotals.fold(0L) { sum, status -> Math.addExact(sum, status.paidCents) }
         val openAmount = paymentTotals.fold(0L) { sum, status -> Math.addExact(sum, status.balanceCents) }
-        val statusSummary = card()
-        statusSummary.addView(label("Situação dos pagamentos", 16, ink, true))
-        statusSummary.addView(label("Pendentes: $pendingCount", 14, red, true).apply { setPadding(0, dp(8), 0, 0) })
-        statusSummary.addView(label("Parciais: $partialCount", 14, blue, true).apply { setPadding(0, dp(5), 0, 0) })
-        statusSummary.addView(label("Pagas: $paidCount", 14, green, true).apply { setPadding(0, dp(5), 0, 0) })
-        statusSummary.addView(label("Valor já pago: ${money(paidAmount)}", 13, green, true).apply { setPadding(0, dp(9), 0, 0) })
-        statusSummary.addView(label("Saldo em aberto: ${money(openAmount)}", 13, red, true).apply { setPadding(0, dp(4), 0, 0) })
-        content.addView(statusSummary, spaced())
 
-        content.addView(label("Ações rápidas", 18, ink, true).apply { setPadding(0, dp(12), 0, dp(8)) })
+        content.addView(label("Olá, Supervisor 👋", 24, ink, true))
+        content.addView(label("Resumo financeiro e atalhos para o seu trabalho.", 14, muted, false).apply {
+            setPadding(0, dp(5), 0, dp(16))
+        })
+
+        val hero = card().apply {
+            background = GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                intArrayOf(Color.rgb(75, 29, 130), Color.rgb(39, 17, 68))
+            ).apply {
+                cornerRadius = dp(20).toFloat()
+                setStroke(dp(1), Color.rgb(117, 74, 170))
+            }
+            setPadding(dp(18), dp(18), dp(18), dp(18))
+        }
+        hero.addView(label("TOTAL REGISTRADO", 12, Color.rgb(221, 204, 250), true))
+        hero.addView(label(money(total), 30, Color.WHITE, true).apply {
+            setPadding(0, dp(5), 0, dp(4))
+        })
+        hero.addView(label("${receipts.size} despesas  ·  ${collaborators.size} colaboradores", 13, Color.rgb(221, 204, 250), false))
+        content.addView(hero, spaced())
+
+        val moneyRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        fun miniMetric(title: String, value: String, valueColor: Int): LinearLayout {
+            val metric = card().apply { setPadding(dp(13), dp(14), dp(13), dp(14)) }
+            metric.addView(label(title, 12, muted, true))
+            metric.addView(label(value, 18, valueColor, true).apply { setPadding(0, dp(6), 0, 0) })
+            return metric
+        }
+        moneyRow.addView(miniMetric("JÁ PAGO", money(paidAmount), green), LinearLayout.LayoutParams(0, -2, 1f).apply {
+            rightMargin = dp(6)
+        })
+        moneyRow.addView(miniMetric("EM ABERTO", money(openAmount), red), LinearLayout.LayoutParams(0, -2, 1f).apply {
+            leftMargin = dp(6)
+        })
+        content.addView(moneyRow, spaced())
+
+        content.addView(label("Situação das despesas", 18, ink, true).apply {
+            setPadding(0, dp(8), 0, dp(9))
+        })
+        val statusCard = card().apply { setPadding(dp(14), dp(15), dp(14), dp(15)) }
+        val statusRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        fun statusMetric(title: String, count: Int, color: Int): LinearLayout {
+            val metric = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+            }
+            metric.addView(label(count.toString(), 22, color, true).apply { gravity = Gravity.CENTER })
+            metric.addView(label(title, 11, muted, false).apply {
+                gravity = Gravity.CENTER
+                setPadding(0, dp(3), 0, 0)
+            })
+            return metric
+        }
+        statusRow.addView(statusMetric("Pendentes", pendingCount, red), LinearLayout.LayoutParams(0, -2, 1f))
+        statusRow.addView(statusMetric("Parciais", partialCount, blue), LinearLayout.LayoutParams(0, -2, 1f))
+        statusRow.addView(statusMetric("Pagas", paidCount, green), LinearLayout.LayoutParams(0, -2, 1f))
+        statusCard.addView(statusRow)
+        content.addView(statusCard, spaced())
+
+        content.addView(label("Ações rápidas", 18, ink, true).apply {
+            setPadding(0, dp(8), 0, dp(9))
+        })
         val add = actionButton("+ Cadastrar despesa")
         add.setOnClickListener { showScreen("new") }
         content.addView(add, spaced())
-        val people = actionButton("Cadastrar colaborador")
-        people.setOnClickListener { showScreen("people"); openCollaboratorDialog() }
-        content.addView(people, spaced())
-        val export = actionButton("Preparar arquivo para o Gestor")
-        export.setOnClickListener { showScreen("files") }
-        content.addView(export, spaced())
 
-        content.addView(label("Atividade recente", 18, ink, true).apply { setPadding(0, dp(12), 0, dp(8)) })
+        fun secondaryAction(text: String, onClick: () -> Unit) {
+            val button = actionButton(text).apply {
+                background = GradientDrawable().apply {
+                    setColor(Color.rgb(23, 14, 43))
+                    cornerRadius = dp(12).toFloat()
+                    setStroke(dp(1), Color.rgb(73, 54, 101))
+                }
+                setTextColor(ink)
+                setOnClickListener { onClick() }
+            }
+            content.addView(button, spaced())
+        }
+        secondaryAction("Cadastrar colaborador") {
+            showScreen("people")
+            openCollaboratorDialog()
+        }
+        secondaryAction("Preparar arquivo para o Gestor") { showScreen("files") }
+
+        content.addView(label("Atividade recente", 18, ink, true).apply {
+            setPadding(0, dp(8), 0, dp(9))
+        })
         if (receipts.isEmpty()) {
             val empty = card()
-            empty.addView(label("Ainda não há despesas. Comece cadastrando sua primeira despesa.", 14, muted, false))
+            empty.addView(label("Tudo pronto para começar", 16, ink, true))
+            empty.addView(label("Cadastre uma despesa e anexe o comprovante para iniciar seu controle.", 13, muted, false).apply {
+                setPadding(0, dp(5), 0, 0)
+            })
             content.addView(empty, spaced())
         } else {
             receipts.take(3).forEach { receipt ->
-                val item = card()
+                val item = card().apply { setPadding(dp(15), dp(14), dp(15), dp(14)) }
                 item.addView(label(receipt.collaborator, 15, ink, true))
                 item.addView(label(money(receipt.amountCents), 19, blue, true).apply { setPadding(0, dp(4), 0, 0) })
-                item.addView(label("${receipt.description} · ${receipt.expenseDate}", 13, muted, false).apply { setPadding(0, dp(3), 0, 0) })
+                item.addView(label("${receipt.description} · ${receipt.expenseDate}", 13, muted, false).apply {
+                    setPadding(0, dp(3), 0, 0)
+                })
                 content.addView(item, spaced())
             }
             val all = actionButton("Ver todas as despesas")
@@ -259,10 +323,16 @@ class MainActivity : Activity() {
         form.addView(descriptionInput, fieldParams())
         form.addView(fieldLabel("Data da despesa"))
         form.addView(dateInput, fieldParams())
-        photoButton = actionButton("Tirar foto ou anexar comprovante")
+        form.addView(fieldLabel("Quantidade de recibos"))
+        photoCountInput = field("Ex.: 5").apply {
+            inputType = InputType.TYPE_CLASS_NUMBER
+            setText("1")
+        }
+        form.addView(photoCountInput, fieldParams())
+        photoButton = actionButton("Tirar fotos ou selecionar recibos")
         photoButton.setOnClickListener { showPhotoOptions() }
         form.addView(photoButton, fieldParams())
-        statusLabel = label("Obrigatório para salvar.", 13, muted, false).apply { setPadding(0, dp(3), 0, dp(10)) }
+        statusLabel = label("Informe a quantidade e anexe todas as fotos.", 13, muted, false).apply { setPadding(0, dp(3), 0, dp(10)) }
         form.addView(statusLabel)
         val save = actionButton("Salvar despesa")
         save.setOnClickListener { saveReceipt() }
@@ -434,14 +504,19 @@ class MainActivity : Activity() {
         val amountText = amountInput.text.toString().trim()
         val description = descriptionInput.text.toString().trim()
         val date = dateInput.text.toString().trim()
-        val photoUri = selectedPhotoUri
+        val photoUris = selectedPhotoUris.toList()
+        val expectedPhotoCount = photoCountInput.text.toString().toIntOrNull()
 
         if (selectedCollaborator == null || amountText.isBlank() || description.isBlank() || date.isBlank()) {
             toast(if (selectedCollaborator == null) "Cadastre um colaborador antes de registrar a despesa." else "Preencha todos os campos.")
             return
         }
-        if (photoUri == null) {
-            toast("Anexe o comprovante antes de salvar.")
+        if (expectedPhotoCount == null || expectedPhotoCount !in 1..50) {
+            toast("Informe uma quantidade entre 1 e 50 recibos.")
+            return
+        }
+        if (photoUris.size != expectedPhotoCount) {
+            toast("Você informou $expectedPhotoCount recibo(s), mas anexou ${photoUris.size} foto(s).")
             return
         }
         // Aceita formatos brasileiros (250,99 / 1.250,99) e ponto decimal (250.99).
@@ -467,20 +542,25 @@ class MainActivity : Activity() {
 
         try {
             val attachmentDir = File(filesDir, "comprovantes").apply { mkdirs() }
-            val attachment = File(attachmentDir, "comprovante_${System.currentTimeMillis()}.img")
-            contentResolver.openInputStream(photoUri).use { input ->
-                if (input == null) error("Não foi possível abrir o comprovante.")
-                attachment.outputStream().use { output -> input.copyTo(output) }
+            val attachmentPaths = photoUris.mapIndexed { index, uri ->
+                val attachment = File(attachmentDir, "comprovante_${System.currentTimeMillis()}_${index + 1}.img")
+                contentResolver.openInputStream(uri).use { input ->
+                    if (input == null) error("Não foi possível abrir o recibo ${index + 1}.")
+                    attachment.outputStream().use { output -> input.copyTo(output) }
+                }
+                attachment.absolutePath
             }
-            database.addReceipt(selectedCollaborator.id, selectedCollaborator.name, amountCents, description, date, attachment.absolutePath)
+            // Mantém compatibilidade com registros antigos: o primeiro caminho continua no início.
+            database.addReceipt(selectedCollaborator.id, selectedCollaborator.name, amountCents, description, date, attachmentPaths.joinToString("\n"))
             amountInput.text.clear()
             descriptionInput.text.clear()
             dateInput.setText(java.time.LocalDate.now().toString())
-            selectedPhotoUri = null
-            photoButton.text = "Tirar foto ou anexar comprovante"
-            statusLabel.text = "Comprovante obrigatório."
+            photoCountInput.setText("1")
+            selectedPhotoUris.clear()
+            photoButton.text = "Tirar fotos ou selecionar recibos"
+            statusLabel.text = "Informe a quantidade e anexe todas as fotos."
             statusLabel.setTextColor(muted)
-            toast("Despesa salva neste celular.")
+            toast("Despesa salva com ${attachmentPaths.size} comprovante(s).")
             showScreen("receipts")
         } catch (error: Exception) {
             toast(error.message ?: "Não foi possível salvar a despesa.")
@@ -567,9 +647,13 @@ class MainActivity : Activity() {
 
     private fun showPhotoOptions() {
         AlertDialog.Builder(this)
-            .setTitle("Adicionar comprovante")
-            .setItems(arrayOf("📷 Tirar foto agora", "🖼️ Escolher da galeria")) { _, which ->
-                if (which == 0) takeReceiptPhoto() else openPhotoPicker()
+            .setTitle("Adicionar recibos (${selectedPhotoUris.size} anexados)")
+            .setItems(arrayOf("📷 Tirar próxima foto", "🖼️ Selecionar fotos da galeria", "🗑️ Limpar fotos selecionadas")) { _, which ->
+                when (which) {
+                    0 -> takeReceiptPhoto()
+                    1 -> openPhotoPicker()
+                    2 -> { selectedPhotoUris.clear(); updatePhotoSelectionStatus() }
+                }
             }
             .setNegativeButton("Cancelar", null)
             .show()
@@ -601,8 +685,23 @@ class MainActivity : Activity() {
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
             type = "image/*"
+            putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
         }
         startActivityForResult(intent, REQUEST_PHOTO)
+    }
+
+
+    private fun updatePhotoSelectionStatus() {
+        val expected = photoCountInput.text.toString().toIntOrNull()
+        photoButton.text = "Adicionar fotos (${selectedPhotoUris.size}${if (expected != null) " de $expected" else ""})"
+        statusLabel.text = if (expected == null || expected !in 1..50) {
+            "Informe quantos recibos serão anexados (1 a 50)."
+        } else if (selectedPhotoUris.size == expected) {
+            "Todas as $expected fotos foram selecionadas. Pronto para salvar."
+        } else {
+            "Fotos anexadas: ${selectedPhotoUris.size} de $expected. Faltam ${kotlin.math.max(0, expected - selectedPhotoUris.size)}."
+        }
+        statusLabel.setTextColor(if (expected != null && expected > 0 && selectedPhotoUris.size == expected) green else muted)
     }
 
     private fun choosePaymentReturn() {
@@ -635,18 +734,13 @@ class MainActivity : Activity() {
             return
         }
         if (requestCode == REQUEST_CAMERA) {
-            selectedPhotoUri = pendingCameraUri
+            pendingCameraUri?.let { selectedPhotoUris.add(it) }
             pendingCameraUri = null
-            if (selectedPhotoUri != null) {
-                photoButton.text = "Foto do recibo selecionada ✓"
-                statusLabel.text = "Foto capturada. Ela será salva junto à despesa."
-                statusLabel.setTextColor(green)
-            } else {
-                toast("Não foi possível obter a foto. Tente novamente.")
-            }
+            if (selectedPhotoUris.isNotEmpty()) updatePhotoSelectionStatus()
+            else toast("Não foi possível obter a foto. Tente novamente.")
             return
         }
-        if (data?.data == null) return
+        if (data == null) return
         if (requestCode == REQUEST_EXPORT) {
             try {
                 contentResolver.openOutputStream(data.data!!).use { output ->
@@ -687,12 +781,12 @@ class MainActivity : Activity() {
             return
         }
         if (requestCode != REQUEST_PHOTO) return
-        selectedPhotoUri = data.data
-        if (selectedPhotoUri != null) {
-            photoButton.text = "Comprovante selecionado ✓"
-            statusLabel.text = "Imagem selecionada. Ela será copiada para o armazenamento privado do app ao salvar."
-            statusLabel.setTextColor(green)
-        }
+        val selected = mutableListOf<Uri>()
+        data.clipData?.let { clip ->
+            for (index in 0 until clip.itemCount) selected += clip.getItemAt(index).uri
+        } ?: data.data?.let { selected += it }
+        selectedPhotoUris.addAll(selected)
+        updatePhotoSelectionStatus()
     }
 
     private fun themedSpinnerAdapter(items: List<String>): ArrayAdapter<String> =
