@@ -702,7 +702,7 @@ class MainActivity : Activity() {
                 val invalid = preview.invalidRows.size
                 val examples = preview.rows.take(8).joinToString("\n") { row ->
                     val status = if (row.errors.isEmpty()) "OK" else "ERRO: ${row.errors.joinToString(", ")}"
-                    "Linha ${row.rowNumber}: ${row.recipient} — ${money(row.amountCents)} — ${row.date.ifBlank { "sem data" }} [$status]"
+                    "${row.sheetName} • linha ${row.rowNumber}: ${row.recipient} — ${money(row.amountCents)} — ${row.date.ifBlank { "sem data" }} [$status]"
                 }
                 val message = "Arquivo: ${preview.fileName}\nLinhas válidas: $valid\nLinhas com erro: $invalid\n\n${examples}\n\nA importação ignora duplicatas exatas e cria despesas sem foto quando necessário. Registros com erro serão ignorados."
                 AlertDialog.Builder(this)
