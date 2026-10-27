@@ -904,7 +904,7 @@ class MainActivity : Activity() {
 
     private fun showReceiptActions(receipt: LocalReceipt) {
         val payment = database.paymentStatus(receipt.externalId)
-        val hasProof = receipt.attachmentPath.isNotBlank() && File(receipt.attachmentPath).exists()
+        val hasProof = database.receiptAttachments(receipt.id).any { File(it).exists() }
         val options = mutableListOf<String>(); val actions = mutableListOf<String>()
         options += if (hasProof) "Ver comprovante" else "Adicionar comprovante"
         actions += if (hasProof) "view" else "attach"
@@ -927,10 +927,17 @@ class MainActivity : Activity() {
 
     private fun openReceiptImage(receipt: LocalReceipt) {
         try {
-            val file = File(receipt.attachmentPath)
-            if (!file.exists()) error("O arquivo do comprovante não foi encontrado.")
-            val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
-            startActivity(Intent(Intent.ACTION_VIEW).apply { setDataAndType(uri, "image/*"); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION) })
+            val photos = database.receiptAttachments(receipt.id).filter { File(it).exists() }
+            if (photos.isEmpty()) error("Nenhuma foto de comprovante foi encontrada.")
+            fun open(path: String) {
+                val file = File(path)
+                val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
+                startActivity(Intent(Intent.ACTION_VIEW).apply { setDataAndType(uri, "image/*"); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION) })
+            }
+            if (photos.size == 1) open(photos.first())
+            else AlertDialog.Builder(this).setTitle("Escolha uma foto (" + photos.size + ")")
+                .setItems(photos.mapIndexed { i, _ -> "Foto " + (i + 1) }.toTypedArray()) { _, which -> open(photos[which]) }
+                .setNegativeButton("Fechar", null).show()
         } catch (error: Exception) { toast(error.message ?: "Não foi possível abrir o comprovante.") }
     }
 
