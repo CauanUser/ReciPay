@@ -39,6 +39,7 @@ class MainActivity : Activity() {
     private var pendingCameraUri: Uri? = null
     private lateinit var photoCountInput: EditText
     private var currentScreen: String = "home"
+    private val REQUEST_COLLABORATOR_IMPORT = 1046
 
     private val blue = Color.rgb(139, 92, 246)
     private val ink = Color.rgb(248, 250, 252)
@@ -357,6 +358,12 @@ class MainActivity : Activity() {
         val add = actionButton("+ Cadastrar colaborador")
         add.setOnClickListener { openCollaboratorDialog() }
         content.addView(add, spaced())
+        val import = actionButton("Importar colaboradores da planilha (.xlsx)")
+        import.setOnClickListener { chooseCollaboratorSpreadsheet() }
+        content.addView(import, spaced())
+        content.addView(label("Use o modelo ReciPay. O app confere os dados e mostra uma prévia antes de importar.", 12, muted, false).apply {
+            setPadding(0, 0, 0, dp(10))
+        })
         if (collaborators.isEmpty()) {
             val empty = card()
             empty.addView(label("Nenhum colaborador cadastrado.", 15, ink, true))
@@ -426,6 +433,70 @@ class MainActivity : Activity() {
         note.addView(label("Dica", 14, blue, true))
         note.addView(label("Envie ao Gestor somente a planilha exportada pelo ReciPay. Depois, importe o arquivo de retorno que ele gerar.", 13, muted, false).apply { setPadding(0, dp(4), 0, 0) })
         content.addView(note, spaced())
+    }
+
+    private fun chooseCollaboratorSpreadsheet() {
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        }
+        startActivityForResult(intent, REQUEST_COLLABORATOR_IMPORT)
+    }
+
+    private fun importCollaboratorSpreadsheet(uri: Uri) {
+        try {
+            val rows = contentResolver.openInputStream(uri).use { input ->
+                if (input == null) error("Não foi possível abrir a planilha.")
+                CollaboratorSpreadsheetImporter.read(input)
+            }
+            val existingNames = database.listCollaborators().map { it.name.trim().lowercase(Locale.ROOT) }.toMutableSet()
+            val valid = mutableListOf<CollaboratorSpreadsheetImporter.Row>()
+            val messages = mutableListOf<String>()
+            rows.forEachIndexed { index, row ->
+                val issues = mutableListOf<String>()
+                if (row.name.isBlank()) issues += "nome obrigatório"
+                if (row.pixKey.isBlank()) issues += "chave Pix obrigatória"
+                val type = CollaboratorSpreadsheetImporter.normalizeType(row.pixType, row.pixKey)
+                if (type == null) issues += "tipo de chave inválido"
+                val normalizedName = row.name.trim().lowercase(Locale.ROOT)
+                if (normalizedName.isNotBlank() && !existingNames.add(normalizedName)) issues += "nome já cadastrado/repetido"
+                if (issues.isEmpty() && type != null) {
+                    valid += row.copy(pixType = type, pixHolder = row.pixHolder.ifBlank { row.name })
+                    messages += "Linha ${index + 2}: ${row.name} — pronta"
+                } else {
+                    messages += "Linha ${index + 2}: ${row.name.ifBlank { "(sem nome)" }} — ${issues.joinToString(", ")}"
+                }
+            }
+            if (rows.isEmpty()) error("A planilha não tem colaboradores para importar.")
+            val previewText = "Planilha: ${rows.size} linha(s)\nProntos: ${valid.size}\nCom erro/duplicados: ${rows.size - valid.size}\n\n" +
+                messages.take(35).joinToString("\n") +
+                if (messages.size > 35) "\n… e mais ${messages.size - 35} linha(s)." else ""
+            AlertDialog.Builder(this)
+                .setTitle("Conferir importação")
+                .setMessage(previewText)
+                .setNegativeButton("Cancelar", null)
+                .setPositiveButton("Importar ${valid.size}") { _, _ ->
+                    var imported = 0
+                    var skipped = rows.size - valid.size
+                    valid.forEach { row ->
+                        try {
+                            database.addCollaborator(row.name, row.team, row.role, row.pixType, row.pixKey, row.pixHolder)
+                            imported++
+                        } catch (_: Exception) {
+                            skipped++
+                        }
+                    }
+                    toast("Importação concluída: $imported novo(s), $skipped ignorado(s).")
+                    showScreen("people")
+                }
+                .show()
+        } catch (error: Exception) {
+            AlertDialog.Builder(this)
+                .setTitle("Não foi possível importar")
+                .setMessage(error.message ?: "Verifique se selecionou uma planilha .xlsx válida.")
+                .setPositiveButton("OK", null)
+                .show()
+        }
     }
 
     private fun openCollaboratorDialog(existing: LocalCollaborator? = null) {
@@ -778,6 +849,10 @@ class MainActivity : Activity() {
             } catch (error: Exception) {
                 toast(error.message ?: "Arquivo de retorno inválido.")
             }
+            return
+        }
+        if (requestCode == REQUEST_COLLABORATOR_IMPORT) {
+            data.data?.let { importCollaboratorSpreadsheet(it) }
             return
         }
         if (requestCode != REQUEST_PHOTO) return
