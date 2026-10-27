@@ -854,7 +854,7 @@ class MainActivity : Activity() {
             } catch (error: Exception) { toast(error.message ?: "Não foi possível compartilhar o PDF.") }
             return
         }
-        if (data?.data == null) return
+        if (data?.data == null && data?.clipData == null) return
         if (requestCode == REQUEST_ATTACH_RECEIPT) {
             val receiptId = pendingAttachmentReceiptId
             pendingAttachmentReceiptId = null
