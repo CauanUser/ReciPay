@@ -206,28 +206,50 @@ class MainActivity : Activity() {
     private fun expenseSummaryRow(receipt: LocalReceipt, onClick: () -> Unit): LinearLayout {
         val payment = database.paymentStatus(receipt.externalId)
         return LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(14), dp(13), dp(14), dp(13))
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(14), dp(13), dp(14), dp(12))
             background = GradientDrawable().apply { setColor(Color.rgb(22, 23, 38)); cornerRadius = dp(14).toFloat(); setStroke(dp(1), Color.rgb(49, 47, 69)) }
+
+            val header = LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
             val details = LinearLayout(this@MainActivity).apply { orientation = LinearLayout.VERTICAL }
             details.addView(label(receipt.collaborator, 14, ink, true))
-            details.addView(label(receipt.description, 12, muted, false).apply { setPadding(0, dp(3), 0, 0); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END })
-            details.addView(label(receipt.expenseDate + " • " + payment.status, 11, if (payment.status.equals("Pago", true)) green else muted, false).apply { setPadding(0, dp(4), 0, 0) })
-            addView(details, LinearLayout.LayoutParams(0, -2, 1f))
-            val trailing = LinearLayout(this@MainActivity).apply {
-                orientation = LinearLayout.VERTICAL
-                gravity = Gravity.CENTER
-                addView(label(money(receipt.amountCents), 14, ink, true).apply {
-                    gravity = Gravity.END
-                    setPadding(dp(8), 0, 0, dp(4))
-                })
-                addView(label("Opções  ›", 11, blue, true).apply {
-                    gravity = Gravity.END
-                    setPadding(dp(8), dp(3), 0, 0)
-                })
-                setOnClickListener { onClick() }
+            details.addView(label(receipt.description, 12, muted, false).apply {
+                setPadding(0, dp(3), 0, 0); maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END
+            })
+            details.addView(label(receipt.expenseDate + " • " + payment.status, 11, if (payment.status.equals("Pago", true)) green else muted, false).apply {
+                setPadding(0, dp(4), 0, 0)
+            })
+            header.addView(details, LinearLayout.LayoutParams(0, -2, 1f))
+            header.addView(label(money(receipt.amountCents), 14, ink, true).apply {
+                gravity = Gravity.END
+                setPadding(dp(8), 0, 0, 0)
+            }, LinearLayout.LayoutParams(-2, -2))
+            header.setOnClickListener { onClick() }
+            addView(header, LinearLayout.LayoutParams(-1, -2))
+
+            val actions = LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.END or Gravity.CENTER_VERTICAL
+                setPadding(0, dp(10), 0, 0)
             }
-            addView(trailing, LinearLayout.LayoutParams(-2, -2))
+            val edit = actionButton("Editar despesa").apply {
+                setOnClickListener {
+                    if (payment.paidCents > 0L) {
+                        toast("Esta despesa já tem pagamentos vinculados; não é possível alterar seus dados sem afetar o histórico.")
+                    } else {
+                        openReceiptEditDialog(receipt)
+                    }
+                }
+            }
+            val delete = actionButton("Excluir").apply {
+                setOnClickListener { confirmDeleteReceipt(receipt) }
+            }
+            actions.addView(edit, LinearLayout.LayoutParams(0, dp(42), 1f).apply { rightMargin = dp(5) })
+            actions.addView(delete, LinearLayout.LayoutParams(0, dp(42), 1f).apply { leftMargin = dp(5) })
+            addView(actions, LinearLayout.LayoutParams(-1, -2))
             setOnClickListener { onClick() }
         }
     }
