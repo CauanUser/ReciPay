@@ -299,6 +299,7 @@ class MainActivity : Activity() {
         content.addView(label("Pessoas", 25, ink, true))
         content.addView(label("Seus colaboradores e dados Pix.", 13, muted, false).apply { setPadding(0, dp(4), 0, dp(16)) })
         content.addView(actionButton("+ Adicionar pessoa").apply { setOnClickListener { openCollaboratorDialog() } }, spaced())
+        content.addView(actionButton("Importar colaboradores da planilha (.xlsx)").apply { setOnClickListener { chooseCollaboratorSpreadsheet() } }, spaced())
         if (collaborators.isEmpty()) {
             val empty = card()
             empty.addView(label("Nenhuma pessoa cadastrada", 16, ink, true))
@@ -749,12 +750,57 @@ class MainActivity : Activity() {
 
     private fun chooseAttachmentForReceipt(receiptId: Long) {
         pendingAttachmentReceiptId = receiptId
-        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-            addCategory(Intent.CATEGORY_OPENABLE)
-            type = "image/*"
-            putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+        AlertDialog.Builder(this).setTitle("Comprovante desta despesa")
+            .setItems(arrayOf("Anexar foto(s)", "Juntar fotos em PDF", "Anexar PDF pronto")) { _, which ->
+                when (which) {
+                    0 -> openDocumentPicker("image/*", REQUEST_ATTACH_RECEIPT, true)
+                    1 -> openDocumentPicker("image/*", REQUEST_ATTACH_PDF_PHOTOS, true)
+                    2 -> openDocumentPicker("application/pdf", REQUEST_ATTACH_READY_PDF, false)
+                }
+            }.setNegativeButton("Cancelar", null).show()
+    }
+    private fun openDocumentPicker(mime: String, request: Int, multiple: Boolean) {
+        startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE); type = mime; putExtra(Intent.EXTRA_ALLOW_MULTIPLE, multiple)
+        }, request)
+    }
+    private fun chooseCollaboratorSpreadsheet() = openDocumentPicker("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", REQUEST_IMPORT_COLLABORATORS, false)
+    private fun persistPdf(uri: Uri, receiptId: Long) {
+        val dir = File(filesDir, "comprovantes").apply { mkdirs() }
+        val target = File(dir, "comprovante_" + receiptId + "_" + System.currentTimeMillis() + ".pdf")
+        contentResolver.openInputStream(uri).use { input ->
+            if (input == null) error("Não foi possível abrir o PDF.")
+            target.outputStream().use { output -> input.copyTo(output) }
         }
-        startActivityForResult(intent, REQUEST_ATTACH_RECEIPT)
+        database.addReceiptAttachments(receiptId, listOf(target.absolutePath))
+    }
+    private fun persistPhotosAsPdf(uris: List<Uri>, receiptId: Long) {
+        if (uris.isEmpty()) error("Selecione pelo menos uma foto.")
+        val document = PdfDocument()
+        try {
+            uris.forEachIndexed { index, uri ->
+                val bitmap = contentResolver.openInputStream(uri).use { input ->
+                    if (input == null) error("Não foi possível abrir uma foto.")
+                    android.graphics.BitmapFactory.decodeStream(input) ?: error("Imagem inválida.")
+                }
+                try {
+                    val page = document.startPage(PdfDocument.PageInfo.Builder(595, 842, index + 1).create())
+                    page.canvas.drawColor(Color.WHITE)
+                    val margin = 24f; val maxW = 547f; val maxH = 770f
+                    val scale = minOf(maxW / bitmap.width, maxH / bitmap.height)
+                    val w = bitmap.width * scale; val h = bitmap.height * scale
+                    val left = (595f - w) / 2f; val top = 48f + (maxH - h) / 2f
+                    page.canvas.drawText("Comprovante " + (index + 1) + "/" + uris.size, margin, 24f,
+                        Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.DKGRAY; textSize = 12f })
+                    page.canvas.drawBitmap(bitmap, null, RectF(left, top, left + w, top + h), Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG))
+                    document.finishPage(page)
+                } finally { bitmap.recycle() }
+            }
+            val dir = File(filesDir, "comprovantes").apply { mkdirs() }
+            val target = File(dir, "comprovante_" + receiptId + "_" + System.currentTimeMillis() + ".pdf")
+            target.outputStream().use { document.writeTo(it) }
+            database.addReceiptAttachments(receiptId, listOf(target.absolutePath))
+        } finally { document.close() }
     }
 
     private fun choosePaymentReturn() {
@@ -820,7 +866,56 @@ class MainActivity : Activity() {
             } catch (error: Exception) { toast(error.message ?: "Não foi possível compartilhar o PDF.") }
             return
         }
-        if (data?.data == null) return
+        if (requestCode == REQUEST_ATTACH_READY_PDF || requestCode == REQUEST_ATTACH_PDF_PHOTOS) {
+            val receiptId = pendingAttachmentReceiptId
+            pendingAttachmentReceiptId = null
+            try {
+                if (receiptId == null) error("Não foi possível identificar a despesa.")
+                if (requestCode == REQUEST_ATTACH_READY_PDF) {
+                    persistPdf(data?.data ?: error("Nenhum PDF foi selecionado."), receiptId)
+                    toast("PDF anexado à despesa.")
+                } else {
+                    val uris = mutableListOf<Uri>()
+                    data?.clipData?.let { clip -> for (i in 0 until clip.itemCount) uris += clip.getItemAt(i).uri }
+                    if (uris.isEmpty()) data?.data?.let { uris += it }
+                    persistPhotosAsPdf(uris, receiptId)
+                    toast("PDF com " + uris.size + " foto(s) anexado à despesa.")
+                }
+                showScreen("receipts")
+            } catch (error: Exception) { toast(error.message ?: "Não foi possível anexar o comprovante.") }
+            return
+        }
+        if (requestCode == REQUEST_IMPORT_COLLABORATORS) {
+            try {
+                val uri = data?.data ?: error("Nenhuma planilha foi selecionada.")
+                val preview = contentResolver.openInputStream(uri).use { input ->
+                    if (input == null) error("Não foi possível abrir a planilha.")
+                    CollaboratorSpreadsheetImporter.read(input, uri.lastPathSegment ?: "colaboradores.xlsx")
+                }
+                val valid = preview.rows.filter { it.errors.isEmpty() }
+                val existing = database.listCollaborators().map { it.name.trim().lowercase(Locale.ROOT) }.toMutableSet()
+                val newCount = valid.count { it.name.trim().lowercase(Locale.ROOT) !in existing }
+                val invalid = preview.rows.count { it.errors.isNotEmpty() }
+                AlertDialog.Builder(this).setTitle("Conferir colaboradores")
+                    .setMessage("Novos: " + newCount + "\\nJá cadastrados: " + (valid.size - newCount) + "\\nCom erro: " + invalid +
+                        "\\n\\n" + preview.rows.take(8).joinToString("\\n") { it.name + if (it.errors.isEmpty()) "" else " • ERRO: " + it.errors.joinToString(", ") })
+                    .setNegativeButton("Cancelar", null)
+                    .setPositiveButton("Importar novos") { _, _ ->
+                        try {
+                            var imported = 0; var skipped = 0
+                            val known = database.listCollaborators().map { it.name.trim().lowercase(Locale.ROOT) }.toMutableSet()
+                            valid.forEach { p ->
+                                if (!known.add(p.name.trim().lowercase(Locale.ROOT))) skipped++
+                                else { database.addCollaborator(p.name, p.team, p.role, p.pixType, p.pixKey, p.pixHolder); imported++ }
+                            }
+                            toast("Importados: " + imported + " • Duplicados: " + skipped + " • Com erro: " + invalid)
+                            showScreen("people")
+                        } catch (error: Exception) { toast(error.message ?: "Falha ao importar colaboradores.") }
+                    }.show()
+            } catch (error: Exception) { toast(error.message ?: "Planilha inválida. Confira a aba Colaboradores.") }
+            return
+        }
+        if (data?.data == null && data?.clipData == null) return
         if (requestCode == REQUEST_ATTACH_RECEIPT) {
             val receiptId = pendingAttachmentReceiptId
             pendingAttachmentReceiptId = null
@@ -1049,16 +1144,16 @@ class MainActivity : Activity() {
 
     private fun openReceiptImage(receipt: LocalReceipt) {
         try {
-            val photos = database.receiptAttachments(receipt.id).filter { File(it).exists() }
-            if (photos.isEmpty()) error("Nenhuma foto de comprovante foi encontrada.")
+            val files = database.receiptAttachments(receipt.id).filter { File(it).exists() }
+            if (files.isEmpty()) error("Nenhum comprovante foi encontrado.")
             fun open(path: String) {
-                val file = File(path)
-                val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
-                startActivity(Intent(Intent.ACTION_VIEW).apply { setDataAndType(uri, "image/*"); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION) })
+                val file = File(path); val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
+                val mime = if (file.extension.equals("pdf", true)) "application/pdf" else "image/*"
+                startActivity(Intent(Intent.ACTION_VIEW).apply { setDataAndType(uri, mime); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION) })
             }
-            if (photos.size == 1) open(photos.first())
-            else AlertDialog.Builder(this).setTitle("Escolha uma foto (" + photos.size + ")")
-                .setItems(photos.mapIndexed { i, _ -> "Foto " + (i + 1) }.toTypedArray()) { _, which -> open(photos[which]) }
+            if (files.size == 1) open(files.first())
+            else AlertDialog.Builder(this).setTitle("Escolha um comprovante (" + files.size + ")")
+                .setItems(files.mapIndexed { i, path -> (if (File(path).extension.equals("pdf", true)) "PDF " else "Foto ") + (i + 1) }.toTypedArray()) { _, which -> open(files[which]) }
                 .setNegativeButton("Fechar", null).show()
         } catch (error: Exception) { toast(error.message ?: "Não foi possível abrir o comprovante.") }
     }
@@ -1148,6 +1243,9 @@ class MainActivity : Activity() {
         private const val REQUEST_ATTACH_RECEIPT = 1048
         private const val REQUEST_PDF_PHOTOS = 1049
         private const val REQUEST_READY_PDF = 1050
+        private const val REQUEST_IMPORT_COLLABORATORS = 1051
+        private const val REQUEST_ATTACH_PDF_PHOTOS = 1052
+        private const val REQUEST_ATTACH_READY_PDF = 1053
         private const val SUPERVISOR_ID = "00000000-0000-4000-8000-000000000001"
     }
 }
