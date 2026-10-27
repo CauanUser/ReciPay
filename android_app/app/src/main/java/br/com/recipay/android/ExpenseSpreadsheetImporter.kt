@@ -12,6 +12,7 @@ import javax.xml.parsers.DocumentBuilderFactory
 
 data class ImportedExpenseRow(
     val rowNumber: Int,
+    val sheetName: String,
     val recipient: String,
     val amountCents: Long,
     val date: String,
@@ -54,82 +55,108 @@ object ExpenseSpreadsheetImporter {
             val rel = relNodes.item(i) as Element
             targets[rel.getAttribute("Id")] = rel.getAttribute("Target")
         }
-        val sheets = workbook.getElementsByTagNameNS("*", "sheet")
-        if (sheets.length == 0) error("A planilha não possui abas.")
-        val first = sheets.item(0) as Element
-        val rid = first.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id")
-        val target = targets[rid] ?: error("Não foi possível localizar a primeira aba.")
-        val sheetPath = if (target.startsWith("/")) target.removePrefix("/")
-            else if (target.startsWith("xl/")) target else "xl/$target"
         val shared = mutableListOf<String>()
         entries["xl/sharedStrings.xml"]?.let { bytes ->
-            val doc = parseXml(bytes)
-            val nodes = doc.getElementsByTagNameNS("*", "si")
+            val nodes = parseXml(bytes).getElementsByTagNameNS("*", "si")
             for (i in 0 until nodes.length) shared += allText(nodes.item(i) as Element)
         }
-        val rowNodes = xml(sheetPath).getElementsByTagNameNS("*", "row")
-        val parsed = mutableListOf<Map<Int, String>>()
-        for (ri in 0 until rowNodes.length) {
-            val row = rowNodes.item(ri) as Element
-            val cells = linkedMapOf<Int, String>()
-            var child = row.firstChild
-            while (child != null) {
-                if (child.nodeType == Node.ELEMENT_NODE && (child as Element).localName == "c") {
-                    val cell = child as Element
-                    val col = columnIndex(cell.getAttribute("r"))
-                    val value = when (cell.getAttribute("t")) {
-                        "inlineStr" -> allText(cell)
-                        "s" -> shared.getOrNull(childText(cell, "v").toIntOrNull() ?: -1)
-                            ?: error("Texto compartilhado inválido no XLSX.")
-                        "b" -> if (childText(cell, "v") == "1") "true" else "false"
-                        else -> childText(cell, "v")
+
+        fun rows(path: String): List<Map<Int, String>> {
+            val rowNodes = xml(path).getElementsByTagNameNS("*", "row")
+            val parsed = mutableListOf<Map<Int, String>>()
+            for (ri in 0 until rowNodes.length) {
+                val row = rowNodes.item(ri) as Element
+                val cells = linkedMapOf<Int, String>()
+                var child = row.firstChild
+                while (child != null) {
+                    if (child.nodeType == Node.ELEMENT_NODE && (child as Element).localName == "c") {
+                        val cell = child as Element
+                        val col = columnIndex(cell.getAttribute("r"))
+                        val value = when (cell.getAttribute("t")) {
+                            "inlineStr" -> allText(cell)
+                            "s" -> shared.getOrNull(childText(cell, "v").toIntOrNull() ?: -1)
+                                ?: error("Texto compartilhado inválido no XLSX.")
+                            "b" -> if (childText(cell, "v") == "1") "true" else "false"
+                            else -> childText(cell, "v")
+                        }
+                        cells[col] = value.trim()
                     }
-                    cells[col] = value.trim()
+                    child = child.nextSibling
                 }
-                child = child.nextSibling
+                parsed += cells
             }
-            parsed += cells
+            return parsed
         }
-        if (parsed.isEmpty()) error("A primeira aba está vazia.")
-        val headers = parsed.first().mapValues { normalize(it.value) }
-        fun findHeader(vararg candidates: String): Int? =
-            headers.entries.firstOrNull { (_, header) -> candidates.any { normalize(it) == header } }?.key
-        val recipientCol = findHeader("destinatario", "beneficiario", "colaborador", "nome", "favorecido", "recebedor")
-            ?: error("Não encontrei a coluna de destinatário/colaborador.")
-        val amountCol = findHeader("valor", "valor total", "valor da despesa", "amount")
-            ?: error("Não encontrei a coluna Valor.")
-        val dateCol = findHeader("data", "data da despesa", "data pagamento", "data do pagamento")
-        val descriptionCol = findHeader("descricao", "despesa", "categoria", "motivo")
-        val statusCol = findHeader("status", "situacao", "situação do pagamento", "estado")
-        val pixCol = findHeader("chave pix", "chave_pix", "pix")
-        val pixTypeCol = findHeader("tipo chave", "tipo de chave", "tipo pix", "tipo_chave")
-        val observationsCol = findHeader("observacoes", "observação", "observações", "observacao", "notas")
-        val dataRows = parsed.drop(1).mapIndexedNotNull { index, row ->
-            if (row.values.all { it.isBlank() }) return@mapIndexedNotNull null
-            val recipient = row[recipientCol].orEmpty()
-            val rawAmount = row[amountCol].orEmpty()
-            val amount = parseMoney(rawAmount)
-            val rawDate = dateCol?.let { row[it].orEmpty() }.orEmpty()
-            val date = normalizeDate(rawDate)
-            val observations = observationsCol?.let { row[it].orEmpty() }.orEmpty()
-            val sourceStatus = statusCol?.let { row[it].orEmpty() }.orEmpty()
-            val description = descriptionCol?.let { row[it].orEmpty() }.orEmpty()
-                .ifBlank { observations.ifBlank { "Despesa importada da planilha" } }
-            val errors = mutableListOf<String>()
-            if (recipient.isBlank()) errors += "Destinatário vazio"
-            if (amount == null || amount <= 0L) errors += "Valor inválido"
-            if (date == null) errors += "Data ausente ou inválida"
-            ImportedExpenseRow(
-                rowNumber = index + 2, recipient = recipient,
-                amountCents = amount ?: 0L, date = date ?: "",
-                description = description, sourceStatus = sourceStatus,
-                pixKey = pixCol?.let { row[it].orEmpty() }.orEmpty(),
-                pixType = pixTypeCol?.let { row[it].orEmpty() }.orEmpty(),
-                observations = observations, errors = errors
-            )
+
+        val sheets = workbook.getElementsByTagNameNS("*", "sheet")
+        if (sheets.length == 0) error("A planilha não possui abas.")
+        val allRows = mutableListOf<ImportedExpenseRow>()
+        for (sheetIndex in 0 until sheets.length) {
+            val sheet = sheets.item(sheetIndex) as Element
+            val sheetName = sheet.getAttribute("name").ifBlank { "Aba ${sheetIndex + 1}" }
+            val rid = sheet.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id")
+            val target = targets[rid] ?: continue
+            val path = if (target.startsWith("/")) target.removePrefix("/")
+                else if (target.startsWith("xl/")) target else "xl/$target"
+            val parsed = rows(path)
+            if (parsed.isEmpty()) continue
+
+            fun headerMap(row: Map<Int, String>) = row.mapValues { normalize(it.value) }
+            fun locateHeader(): Int {
+                for (i in 0 until minOf(parsed.size, 20)) {
+                    val headers = headerMap(parsed[i])
+                    val hasRecipient = headers.values.any { it == "destinatario" || it == "beneficiario" || it == "colaborador" || it == "nome" || it == "favorecido" || it == "recebedor" }
+                    val hasAmount = headers.values.any { it == "valor" || it.startsWith("valor ") || it == "amount" }
+                    if (hasRecipient && hasAmount) return i
+                }
+                return -1
+            }
+            val headerIndex = locateHeader()
+            if (headerIndex < 0) continue
+            val headers = headerMap(parsed[headerIndex])
+            fun findHeader(vararg candidates: String): Int? {
+                val normalizedCandidates = candidates.map { normalize(it) }
+                return headers.entries.firstOrNull { (_, header) ->
+                    normalizedCandidates.any { candidate -> header == candidate || (candidate == "valor" && header.startsWith("valor ")) }
+                }?.key
+            }
+            val recipientCol = findHeader("destinatario", "beneficiario", "colaborador", "nome", "favorecido", "recebedor")
+                ?: continue
+            val amountCol = findHeader("valor", "valor r", "valor total", "valor da despesa", "amount")
+                ?: continue
+            val dateCol = findHeader("data", "data da despesa", "data pagamento", "data do pagamento")
+            val descriptionCol = findHeader("descricao", "despesa", "categoria", "motivo")
+            val statusCol = findHeader("status", "situacao", "situação do pagamento", "estado")
+            val pixCol = findHeader("chave pix", "chave_pix", "pix")
+            val pixTypeCol = findHeader("tipo chave", "tipo de chave", "tipo da chave", "tipo pix", "tipo_chave")
+            val observationsCol = findHeader("observacoes", "observação", "observações", "observacao", "notas")
+            for (index in headerIndex + 1 until parsed.size) {
+                val row = parsed[index]
+                if (row.values.all { it.isBlank() }) continue
+                val recipient = row[recipientCol].orEmpty()
+                val amount = parseMoney(row[amountCol].orEmpty())
+                val rawDate = dateCol?.let { row[it].orEmpty() }.orEmpty()
+                val date = normalizeDate(rawDate)
+                val observations = observationsCol?.let { row[it].orEmpty() }.orEmpty()
+                val sourceStatus = statusCol?.let { row[it].orEmpty() }.orEmpty()
+                val description = descriptionCol?.let { row[it].orEmpty() }.orEmpty()
+                    .ifBlank { observations.ifBlank { "Despesa importada da planilha" } }
+                val errors = mutableListOf<String>()
+                if (recipient.isBlank()) errors += "Destinatário vazio"
+                if (amount == null || amount <= 0L) errors += "Valor inválido"
+                // A data da planilha costuma ser a data do pagamento; pendências podem não ter data ainda.
+                allRows += ImportedExpenseRow(
+                    rowNumber = index + 1, sheetName = sheetName, recipient = recipient,
+                    amountCents = amount ?: 0L, date = date.orEmpty(),
+                    description = description, sourceStatus = sourceStatus,
+                    pixKey = pixCol?.let { row[it].orEmpty() }.orEmpty(),
+                    pixType = pixTypeCol?.let { row[it].orEmpty() }.orEmpty(),
+                    observations = observations, errors = errors
+                )
+            }
         }
-        if (dataRows.isEmpty()) error("Não encontrei linhas de despesas para importar.")
-        return ExpenseSpreadsheetPreview(fileName, dataRows)
+        if (allRows.isEmpty()) error("Não encontrei linhas de despesas. Verifique se há cabeçalhos como Destinatário e Valor.")
+        return ExpenseSpreadsheetPreview(fileName, allRows)
     }
 
     private fun parseMoney(raw: String): Long? {
@@ -140,9 +167,8 @@ object ExpenseSpreadsheetImporter {
             value.count { it == '.' } > 1 -> value.replace(".", "")
             else -> value
         }
-        return try {
-            BigDecimal(normalized).movePointRight(2).setScale(0, RoundingMode.HALF_UP).longValueExact()
-        } catch (_: Exception) { null }
+        return try { BigDecimal(normalized).movePointRight(2).setScale(0, RoundingMode.HALF_UP).longValueExact() }
+        catch (_: Exception) { null }
     }
 
     private fun normalizeDate(raw: String): String? {
@@ -168,6 +194,7 @@ object ExpenseSpreadsheetImporter {
     private fun parseXml(bytes: ByteArray): org.w3c.dom.Document {
         val factory = DocumentBuilderFactory.newInstance().apply { isNamespaceAware = true }
         try { factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true) } catch (_: Exception) {}
+        try { factory.setFeature("http://xml.org/sax/features/external-general-entities", false) } catch (_: Exception) {}
         return factory.newDocumentBuilder().parse(ByteArrayInputStream(bytes))
     }
 
