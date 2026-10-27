@@ -205,8 +205,25 @@ class MainActivity : Activity() {
             setOnClickListener { action() }
         }
 
+    private fun registrationStatus(receipt: LocalReceipt): String {
+        val dateValid = try {
+            java.time.LocalDate.parse(receipt.expenseDate)
+            true
+        } catch (_: Exception) {
+            false
+        }
+        val proofFiles = database.receiptAttachments(receipt.id).filter { File(it).isFile && File(it).exists() }
+        return when {
+            !dateValid && proofFiles.isEmpty() -> "Cadastro incompleto • falta data e comprovante"
+            !dateValid -> "Cadastro incompleto • falta data"
+            proofFiles.isEmpty() -> "Cadastro incompleto • falta comprovante"
+            else -> "Cadastro concluído"
+        }
+    }
+
     private fun expenseSummaryRow(receipt: LocalReceipt, onClick: () -> Unit): LinearLayout {
         val payment = database.paymentStatus(receipt.externalId)
+        val registration = registrationStatus(receipt)
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(14), dp(13), dp(14), dp(12))
@@ -221,7 +238,8 @@ class MainActivity : Activity() {
             details.addView(label(receipt.description, 12, muted, false).apply {
                 setPadding(0, dp(3), 0, 0); maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END
             })
-            details.addView(label(receipt.expenseDate + " • Cadastro concluído", 11, green, true).apply {
+            details.addView(label(receipt.expenseDate + " • " + registration, 11,
+                if (registration == "Cadastro concluído") green else Color.rgb(251, 191, 36), true).apply {
                 setPadding(0, dp(4), 0, 0)
             })
             header.addView(details, LinearLayout.LayoutParams(0, -2, 1f))
@@ -1193,16 +1211,17 @@ class MainActivity : Activity() {
 
     private fun showReceiptActions(receipt: LocalReceipt) {
         val payment = database.paymentStatus(receipt.externalId)
-        val hasProof = database.receiptAttachments(receipt.id).any { File(it).exists() }
+        val proofFiles = database.receiptAttachments(receipt.id).filter { File(it).isFile && File(it).exists() }
+        val hasProof = proofFiles.isNotEmpty()
         val options = mutableListOf<String>(); val actions = mutableListOf<String>()
-        options += if (hasProof) "Ver comprovante" else "Adicionar comprovante"
+        options += if (hasProof) "Ver comprovantes (" + proofFiles.size + ")" else "Adicionar comprovante"
         actions += if (hasProof) "view" else "attach"
         if (payment.paidCents == 0L) { options += "Editar despesa"; actions += "edit" }
         options += "Excluir despesa"; actions += "delete"
-        val proofText = if (hasProof) "Comprovante anexado" else "Comprovante ainda não anexado"
+        val proofText = if (hasProof) proofFiles.size.toString() + " comprovante(s) anexado(s)" else "Comprovante ainda não anexado"
         AlertDialog.Builder(this)
             .setTitle(receipt.collaborator + " • " + money(receipt.amountCents))
-            .setMessage(receipt.description + "\nData: " + receipt.expenseDate + "\nCadastro: Concluído" +
+            .setMessage(receipt.description + "\nData: " + receipt.expenseDate + "\nCadastro: " + registrationStatus(receipt) +
                 "\nPagamento: " + payment.status + "\nPago: " + money(payment.paidCents) + " • Saldo: " + money(payment.balanceCents) + "\n" + proofText)
             .setItems(options.toTypedArray()) { _, which ->
                 when (actions[which]) {
