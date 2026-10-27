@@ -45,6 +45,7 @@ class MainActivity : Activity() {
     private var pendingCameraUri: Uri? = null
     private var pendingAttachmentReceiptId: Long? = null
     private var currentScreen: String = "home"
+    private var selectedReceiptId: Long? = null
 
     private val blue = Color.rgb(139, 92, 246)
     private val ink = Color.rgb(248, 250, 252)
@@ -129,6 +130,7 @@ class MainActivity : Activity() {
             "home" -> renderDashboard()
             "new" -> renderExpenseForm()
             "receipts" -> renderReceipts()
+            "detail" -> renderExpenseDetails()
             "people" -> renderCollaborators()
             "files" -> renderFiles()
         }
@@ -189,7 +191,7 @@ class MainActivity : Activity() {
             empty.addView(label("Cadastre uma despesa ou importe sua planilha para começar.", 13, muted, false).apply { setPadding(0, dp(5), 0, 0) })
             content.addView(empty, spaced())
         } else {
-            receipts.take(3).forEach { receipt -> content.addView(expenseSummaryRow(receipt) { showReceiptActions(receipt) }, spaced()) }
+            receipts.take(3).forEach { receipt -> content.addView(expenseSummaryRow(receipt) { showExpenseDetails(receipt) }, spaced()) }
             content.addView(actionButton("Ver todas").apply { setOnClickListener { showScreen("receipts") } }, spaced())
         }
     }
@@ -230,26 +232,10 @@ class MainActivity : Activity() {
             header.setOnClickListener { onClick() }
             addView(header, LinearLayout.LayoutParams(-1, -2))
 
-            val actions = LinearLayout(this@MainActivity).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.END or Gravity.CENTER_VERTICAL
-                setPadding(0, dp(10), 0, 0)
+            val viewButton = actionButton("Visualizar despesa").apply {
+                setOnClickListener { onClick() }
             }
-            val edit = actionButton("Editar despesa").apply {
-                setOnClickListener {
-                    if (payment.paidCents > 0L) {
-                        toast("Esta despesa já tem pagamentos vinculados; não é possível alterar seus dados sem afetar o histórico.")
-                    } else {
-                        openReceiptEditDialog(receipt)
-                    }
-                }
-            }
-            val delete = actionButton("Excluir").apply {
-                setOnClickListener { confirmDeleteReceipt(receipt) }
-            }
-            actions.addView(edit, LinearLayout.LayoutParams(0, dp(42), 1f).apply { rightMargin = dp(5) })
-            actions.addView(delete, LinearLayout.LayoutParams(0, dp(42), 1f).apply { leftMargin = dp(5) })
-            addView(actions, LinearLayout.LayoutParams(-1, -2))
+            addView(viewButton, LinearLayout.LayoutParams(-1, dp(46)).apply { topMargin = dp(10) })
             setOnClickListener { onClick() }
         }
     }
@@ -605,7 +591,8 @@ class MainActivity : Activity() {
                         description.text.toString().trim(), expenseDate
                     )
                     toast("Despesa atualizada. O comprovante foi mantido.")
-                    showScreen("receipts")
+                    selectedReceiptId = receipt.id
+                    showScreen("detail")
                 } catch (error: Exception) {
                     toast(error.message ?: "Não foi possível atualizar a despesa.")
                 }
@@ -751,7 +738,8 @@ class MainActivity : Activity() {
         pendingAttachmentReceiptId = receiptId
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
-            type = "image/*"
+            type = "*/*"
+            putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("image/*", "application/pdf"))
             putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
         }
         startActivityForResult(intent, REQUEST_ATTACH_RECEIPT)
@@ -833,16 +821,21 @@ class MainActivity : Activity() {
                 if (uris.isEmpty()) error("Selecione pelo menos uma foto.")
                 val attachmentDir = File(filesDir, "comprovantes").apply { mkdirs() }
                 val attachments = uris.mapIndexed { index, uri ->
-                    val attachment = File(attachmentDir, "comprovante_importado_" + receiptId + "_" + System.currentTimeMillis() + "_" + index + ".img")
+                    val mime = contentResolver.getType(uri).orEmpty().lowercase(Locale.ROOT)
+                    val extension = if (mime == "application/pdf" || uri.toString().substringBefore('?').endsWith(".pdf", true)) ".pdf" else {
+                        when (mime) { "image/png" -> ".png"; "image/webp" -> ".webp"; "image/gif" -> ".gif"; else -> ".jpg" }
+                    }
+                    val attachment = File(attachmentDir, "comprovante_importado_" + receiptId + "_" + System.currentTimeMillis() + "_" + index + extension)
                     contentResolver.openInputStream(uri).use { input ->
-                        if (input == null) error("Não foi possível abrir uma das imagens.")
+                        if (input == null) error("Não foi possível abrir um dos comprovantes.")
                         attachment.outputStream().use { output -> input.copyTo(output) }
                     }
                     attachment
                 }
                 database.addReceiptAttachments(receiptId, attachments.map { it.absolutePath })
-                toast(attachments.size.toString() + " foto(s) anexada(s) à despesa.")
-                showScreen("receipts")
+                toast(attachments.size.toString() + " comprovante(s) anexado(s) à despesa.")
+                selectedReceiptId = receiptId
+                showScreen("detail")
             } catch (error: Exception) { toast(error.message ?: "Não foi possível anexar as fotos.") }
             return
         }
@@ -1010,7 +1003,7 @@ class MainActivity : Activity() {
                 empty.addView(label(if (receipts.isEmpty()) "Use “Nova despesa” ou importe um Excel." else "Tente mudar a busca ou o filtro.", 13, muted, false).apply { setPadding(0, dp(5), 0, 0) })
                 list.addView(empty, spaced()); return
             }
-            filtered.forEach { receipt -> list.addView(expenseSummaryRow(receipt) { showReceiptActions(receipt) }, spaced()) }
+            filtered.forEach { receipt -> list.addView(expenseSummaryRow(receipt) { showExpenseDetails(receipt) }, spaced()) }
         }
         search.addTextChangedListener(object : android.text.TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
@@ -1022,6 +1015,108 @@ class MainActivity : Activity() {
             override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: android.view.View?, position: Int, id: Long) { render(search.text.toString(), options[position]) }
         }
         render("", options.first())
+    }
+
+    private fun showExpenseDetails(receipt: LocalReceipt) {
+        selectedReceiptId = receipt.id
+        showScreen("detail")
+    }
+
+    private fun renderExpenseDetails() {
+        val receipt = database.listReceipts().firstOrNull { it.id == selectedReceiptId }
+        if (receipt == null) {
+            content.addView(label("Despesa não encontrada.", 18, ink, true))
+            content.addView(actionButton("Voltar às despesas").apply { setOnClickListener { showScreen("receipts") } }, spaced())
+            return
+        }
+        val payment = database.paymentStatus(receipt.externalId)
+        val attachments = database.receiptAttachments(receipt.id).filter { File(it).exists() }
+        content.addView(label("Visualizar despesa", 25, ink, true))
+        content.addView(label("Confira todos os dados e comprovantes deste registro.", 13, muted, false).apply { setPadding(0, dp(4), 0, dp(16)) })
+
+        val info = card()
+        info.addView(label(receipt.collaborator, 20, ink, true))
+        info.addView(label(money(receipt.amountCents), 27, blue, true).apply { setPadding(0, dp(8), 0, dp(12)) })
+        fun detailLine(title: String, value: String) {
+            info.addView(label(title.uppercase(Locale.ROOT), 11, muted, true).apply { setPadding(0, dp(10), 0, dp(3)) })
+            info.addView(label(value.ifBlank { "Não informado" }, 15, ink, false))
+        }
+        detailLine("Descrição", receipt.description)
+        detailLine("Data da despesa", receipt.expenseDate)
+        detailLine("Status do pagamento", payment.status)
+        detailLine("Total pago", money(payment.paidCents))
+        detailLine("Saldo restante", money(payment.balanceCents))
+        detailLine("Cadastro", registrationStatus(receipt))
+        detailLine("Identificador", receipt.externalId)
+        content.addView(info, spaced())
+
+        content.addView(label("Comprovantes (" + attachments.size + ")", 18, ink, true).apply { setPadding(0, dp(8), 0, dp(10)) })
+        if (attachments.isEmpty()) {
+            val emptyProof = card()
+            emptyProof.addView(label("Nenhum comprovante anexado.", 14, muted, false))
+            emptyProof.addView(actionButton("Adicionar PDF ou imagem").apply {
+                setOnClickListener { chooseAttachmentForReceipt(receipt.id) }
+            }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
+            content.addView(emptyProof, spaced())
+        } else {
+            attachments.forEachIndexed { index, path ->
+                val file = File(path)
+                val isPdf = isPdfFile(file)
+                val proof = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+                    setPadding(dp(12), dp(12), dp(12), dp(12))
+                    background = GradientDrawable().apply { setColor(Color.rgb(22, 23, 38)); cornerRadius = dp(12).toFloat(); setStroke(dp(1), Color.rgb(49, 47, 69)) }
+                }
+                val proofInfo = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+                proofInfo.addView(label(if (isPdf) "PDF • Comprovante " + (index + 1) else "Imagem • Comprovante " + (index + 1), 14, ink, true))
+                proofInfo.addView(label(file.name, 11, muted, false).apply { setPadding(0, dp(4), 0, 0); maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END })
+                proof.addView(proofInfo, LinearLayout.LayoutParams(0, -2, 1f).apply { rightMargin = dp(8) })
+                proof.addView(actionButton("Visualizar").apply {
+                    setOnClickListener { openReceiptAttachment(file) }
+                }, LinearLayout.LayoutParams(dp(112), dp(44)))
+                content.addView(proof, spaced())
+            }
+            content.addView(actionButton("＋ Adicionar outro PDF ou imagem").apply {
+                setOnClickListener { chooseAttachmentForReceipt(receipt.id) }
+            }, spaced())
+        }
+
+        val actions = card()
+        actions.addView(actionButton("Editar despesa").apply {
+            isEnabled = payment.paidCents == 0L
+            alpha = if (isEnabled) 1f else 0.45f
+            setOnClickListener {
+                if (payment.paidCents > 0L) toast("Esta despesa já tem pagamentos vinculados; os dados não podem ser alterados para preservar o histórico.")
+                else openReceiptEditDialog(receipt)
+            }
+        }, matchWrap())
+        actions.addView(actionButton("Excluir despesa").apply {
+            background = GradientDrawable().apply { setColor(Color.rgb(130, 35, 55)); cornerRadius = dp(12).toFloat() }
+            setOnClickListener { confirmDeleteReceipt(receipt) }
+        }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(9) })
+        actions.addView(actionButton("Voltar às despesas").apply { setOnClickListener { showScreen("receipts") } }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(9) })
+        content.addView(actions, spaced())
+    }
+
+    private fun isPdfFile(file: File): Boolean {
+        if (file.extension.equals("pdf", true)) return true
+        return try { file.inputStream().use { input -> String(input.readNBytes(5), Charsets.US_ASCII) == "%PDF-" } } catch (_: Exception) { false }
+    }
+
+    private fun openReceiptAttachment(file: File) {
+        try {
+            if (!file.exists()) error("O arquivo deste comprovante não foi encontrado.")
+            val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
+            val mime = if (isPdfFile(file)) "application/pdf" else "image/*"
+            val view = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, mime)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            try { startActivity(view) }
+            catch (_: android.content.ActivityNotFoundException) {
+                startActivity(Intent.createChooser(view, "Abrir comprovante"))
+            }
+        } catch (error: Exception) { toast(error.message ?: "Não foi possível abrir o comprovante.") }
     }
 
     private fun showReceiptActions(receipt: LocalReceipt) {
@@ -1050,15 +1145,11 @@ class MainActivity : Activity() {
     private fun openReceiptImage(receipt: LocalReceipt) {
         try {
             val photos = database.receiptAttachments(receipt.id).filter { File(it).exists() }
-            if (photos.isEmpty()) error("Nenhuma foto de comprovante foi encontrada.")
-            fun open(path: String) {
-                val file = File(path)
-                val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
-                startActivity(Intent(Intent.ACTION_VIEW).apply { setDataAndType(uri, "image/*"); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION) })
-            }
+            if (photos.isEmpty()) error("Nenhum comprovante foi encontrado.")
+            fun open(path: String) { openReceiptAttachment(File(path)) }
             if (photos.size == 1) open(photos.first())
-            else AlertDialog.Builder(this).setTitle("Escolha uma foto (" + photos.size + ")")
-                .setItems(photos.mapIndexed { i, _ -> "Foto " + (i + 1) }.toTypedArray()) { _, which -> open(photos[which]) }
+            else AlertDialog.Builder(this).setTitle("Escolha um comprovante (" + photos.size + ")")
+                .setItems(photos.mapIndexed { i, path -> (if (isPdfFile(File(path))) "PDF " else "Imagem ") + (i + 1) }.toTypedArray()) { _, which -> open(photos[which]) }
                 .setNegativeButton("Fechar", null).show()
         } catch (error: Exception) { toast(error.message ?: "Não foi possível abrir o comprovante.") }
     }
@@ -1068,7 +1159,7 @@ class MainActivity : Activity() {
             .setMessage(receipt.description + " — " + money(receipt.amountCents) + "\n\nSe houver pagamentos vinculados, a exclusão será bloqueada para proteger o histórico.")
             .setNegativeButton("Manter", null)
             .setPositiveButton("Excluir") { _, _ ->
-                try { database.deleteReceipt(receipt.id); toast("Despesa excluída."); showScreen("receipts") }
+                try { database.deleteReceipt(receipt.id); toast("Despesa excluída."); selectedReceiptId = null; showScreen("receipts") }
                 catch (error: Exception) { toast(error.message ?: "Não foi possível excluir esta despesa.") }
             }.show()
     }
