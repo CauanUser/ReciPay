@@ -1100,7 +1100,7 @@ class MainActivity : Activity() {
 
     private fun isPdfFile(file: File): Boolean {
         if (file.extension.equals("pdf", true)) return true
-        return try { file.inputStream().use { input -> String(input.readNBytes(5), Charsets.US_ASCII) == "%PDF-" } } catch (_: Exception) { false }
+        return try { file.inputStream().use { input -> val header = ByteArray(5); val count = input.read(header); count == 5 && String(header, Charsets.US_ASCII) == "%PDF-" } } catch (_: Exception) { false }
     }
 
     private fun openReceiptAttachment(file: File) {
