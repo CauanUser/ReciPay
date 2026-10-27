@@ -208,7 +208,20 @@ class MainActivity : Activity() {
             details.addView(label(receipt.description, 12, muted, false).apply { setPadding(0, dp(3), 0, 0); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END })
             details.addView(label(receipt.expenseDate + " • " + payment.status, 11, if (payment.status.equals("Pago", true)) green else muted, false).apply { setPadding(0, dp(4), 0, 0) })
             addView(details, LinearLayout.LayoutParams(0, -2, 1f))
-            addView(label(money(receipt.amountCents), 14, ink, true).apply { gravity = Gravity.END; setPadding(dp(8), 0, 0, 0) })
+            val trailing = LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                addView(label(money(receipt.amountCents), 14, ink, true).apply {
+                    gravity = Gravity.END
+                    setPadding(dp(8), 0, 0, dp(4))
+                })
+                addView(label("Opções  ›", 11, blue, true).apply {
+                    gravity = Gravity.END
+                    setPadding(dp(8), dp(3), 0, 0)
+                })
+                setOnClickListener { onClick() }
+            }
+            addView(trailing, LinearLayout.LayoutParams(-2, -2))
             setOnClickListener { onClick() }
         }
     }
