@@ -117,7 +117,7 @@ object ExpenseSpreadsheetImporter {
             fun findHeader(vararg candidates: String): Int? {
                 val normalizedCandidates = candidates.map { normalize(it) }
                 return headers.entries.firstOrNull { (_, header) ->
-                    normalizedCandidates.any { candidate -> header == candidate || (candidate == "valor" && header.startsWith("valor ")) }
+                    normalizedCandidates.any { candidate -> header == candidate }
                 }?.key
             }
             val recipientCol = findHeader("destinatario", "beneficiario", "colaborador", "nome", "favorecido", "recebedor")
@@ -134,6 +134,9 @@ object ExpenseSpreadsheetImporter {
                 val row = parsed[index]
                 if (row.values.all { it.isBlank() }) continue
                 val recipient = row[recipientCol].orEmpty()
+                // Ignora linhas de total/subtotal e resumos: elas não representam uma despesa individual.
+                val recipientNormalized = normalize(recipient)
+                if (recipientNormalized in setOf("total", "total geral", "subtotal", "soma", "saldo", "saldo total", "valor total", "total de despesas")) continue
                 val amount = parseMoney(row[amountCol].orEmpty())
                 val rawDate = dateCol?.let { row[it].orEmpty() }.orEmpty()
                 val date = normalizeDate(rawDate)
