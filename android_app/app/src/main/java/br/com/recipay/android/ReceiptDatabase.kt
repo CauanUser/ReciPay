@@ -189,7 +189,7 @@ class ReceiptDatabase(context: Context) : SQLiteOpenHelper(context, "recipay_sup
     }
 
     fun addReceipt(
-        collaboratorId: Long,
+        collaboratorId: Long?,
         collaborator: String,
         amountCents: Long,
         description: String,
@@ -199,7 +199,7 @@ class ReceiptDatabase(context: Context) : SQLiteOpenHelper(context, "recipay_sup
         val values = ContentValues().apply {
             put("external_id", java.util.UUID.randomUUID().toString())
             put("collaborator", collaborator)
-            put("collaborator_id", collaboratorId)
+            if (collaboratorId == null) putNull("collaborator_id") else put("collaborator_id", collaboratorId)
             put("amount_cents", amountCents)
             put("description", description)
             put("expense_date", expenseDate)
@@ -207,6 +207,32 @@ class ReceiptDatabase(context: Context) : SQLiteOpenHelper(context, "recipay_sup
             put("created_at", System.currentTimeMillis())
         }
         return writableDatabase.insertOrThrow("receipts", null, values)
+    }
+
+    /** Importa registros sem foto, ignorando duplicatas exatas de pessoa, valor, descrição e data. */
+    fun importSpreadsheetExpense(
+        collaboratorId: Long?, collaborator: String, amountCents: Long,
+        description: String, expenseDate: String
+    ): Boolean {
+        require(collaborator.isNotBlank() && amountCents > 0L && description.isNotBlank()) {
+            "Dados da despesa importada inválidos."
+        }
+        val duplicate = readableDatabase.rawQuery(
+            "SELECT COUNT(*) FROM receipts WHERE collaborator = ? COLLATE NOCASE AND amount_cents = ? AND description = ? COLLATE NOCASE AND expense_date = ?",
+            arrayOf(collaborator.trim(), amountCents.toString(), description.trim(), expenseDate)
+        ).use { cursor -> cursor.moveToFirst(); cursor.getLong(0) > 0L }
+        if (duplicate) return false
+        addReceipt(collaboratorId, collaborator.trim(), amountCents, description.trim(), expenseDate, "")
+        return true
+    }
+
+    fun setReceiptAttachment(id: Long, attachmentPath: String) {
+        require(attachmentPath.isNotBlank()) { "Caminho do comprovante inválido." }
+        val changed = writableDatabase.update(
+            "receipts", ContentValues().apply { put("attachment_path", attachmentPath) },
+            "id = ?", arrayOf(id.toString())
+        )
+        require(changed == 1) { "Despesa não encontrada." }
     }
 
 
