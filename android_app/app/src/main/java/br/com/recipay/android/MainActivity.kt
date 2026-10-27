@@ -255,55 +255,71 @@ class MainActivity : Activity() {
 
     private fun renderCollaborators() {
         val collaborators = database.listCollaborators()
-        content.addView(label("Pessoas", 23, ink, true))
-        content.addView(label("Colaboradores e suas chaves Pix cadastradas.", 14, muted, false).apply {
-            setPadding(0, dp(5), 0, dp(15))
-        })
-        val add = actionButton("+ Cadastrar colaborador")
-        add.setOnClickListener { openCollaboratorDialog() }
-        content.addView(add, spaced())
+        content.addView(label("Pessoas", 25, ink, true))
+        content.addView(label("Seus colaboradores e dados Pix.", 13, muted, false).apply { setPadding(0, dp(4), 0, dp(16)) })
+        content.addView(actionButton("+ Adicionar pessoa").apply { setOnClickListener { openCollaboratorDialog() } }, spaced())
         if (collaborators.isEmpty()) {
             val empty = card()
-            empty.addView(label("Nenhum colaborador cadastrado.", 15, ink, true))
-            empty.addView(label("Cadastre o colaborador e confirme os dados da chave Pix antes de registrar despesas.", 13, muted, false).apply { setPadding(0, dp(5), 0, 0) })
-            content.addView(empty, spaced())
-            return
+            empty.addView(label("Nenhuma pessoa cadastrada", 16, ink, true))
+            empty.addView(label("Cadastre uma pessoa para começar a registrar despesas.", 13, muted, false).apply { setPadding(0, dp(5), 0, 0) })
+            content.addView(empty, spaced()); return
         }
-        collaborators.forEach { person ->
-            val item = card()
-            item.addView(label(person.name, 17, ink, true))
-            item.addView(label("Função: ${person.role}", 13, blue, true).apply { setPadding(0, dp(4), 0, 0) })
-            if (person.team.isNotBlank()) item.addView(label("Equipe: ${person.team}", 13, muted, false).apply { setPadding(0, dp(3), 0, 0) })
-            item.addView(label("${person.pixType}: ${person.pixKey}", 14, blue, true).apply { setPadding(0, dp(6), 0, 0) })
-            item.addView(label("Titular: ${person.pixHolder}", 13, muted, false).apply { setPadding(0, dp(3), 0, dp(10)) })
-            val edit = actionButton("Editar colaborador")
-            edit.setOnClickListener { openCollaboratorDialog(person) }
-            item.addView(edit, matchWrap())
-            val delete = actionButton("Excluir colaborador").apply {
-                background = GradientDrawable().apply {
-                    setColor(red)
-                    cornerRadius = dp(12).toFloat()
+        val search = field("Buscar colaborador")
+        content.addView(search, spaced())
+        val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        content.addView(list)
+        fun render(queryRaw: String) {
+            list.removeAllViews()
+            val query = queryRaw.trim().lowercase(Locale.ROOT)
+            val filtered = collaborators.filter { it.name.lowercase(Locale.ROOT).contains(query) || it.team.lowercase(Locale.ROOT).contains(query) }
+            if (filtered.isEmpty()) {
+                list.addView(card().apply { addView(label("Nenhuma pessoa encontrada.", 14, muted, false)) }, spaced()); return
+            }
+            filtered.forEach { person ->
+                val item = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+                    setPadding(dp(14), dp(14), dp(14), dp(14))
+                    background = GradientDrawable().apply { setColor(Color.rgb(22, 23, 38)); cornerRadius = dp(14).toFloat(); setStroke(dp(1), Color.rgb(49, 47, 69)) }
                 }
+                val initial = label(person.name.trim().take(1).uppercase(Locale.ROOT), 17, blue, true).apply {
+                    gravity = Gravity.CENTER; background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.rgb(40, 31, 67)) }
+                }
+                item.addView(initial, LinearLayout.LayoutParams(dp(42), dp(42)).apply { rightMargin = dp(12) })
+                val details = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+                details.addView(label(person.name, 15, ink, true))
+                val secondary = listOf(person.role, person.team).filter { it.isNotBlank() }.joinToString(" • ").ifBlank { person.pixType }
+                details.addView(label(secondary, 12, muted, false).apply { setPadding(0, dp(3), 0, 0); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END })
+                item.addView(details, LinearLayout.LayoutParams(0, -2, 1f))
+                item.addView(label("›", 26, muted, false).apply { setPadding(dp(8), 0, 0, 0) })
+                item.setOnClickListener { showCollaboratorActions(person) }
+                list.addView(item, spaced())
             }
-            delete.setOnClickListener {
-                AlertDialog.Builder(this)
-                    .setTitle("Excluir colaborador?")
-                    .setMessage("Deseja excluir ${person.name}? Para proteger o histórico, só é possível excluir quem ainda não possui despesas registradas.")
-                    .setNegativeButton("Cancelar", null)
-                    .setPositiveButton("Excluir") { _, _ ->
-                        try {
-                            database.deleteCollaborator(person.id)
-                            toast("Colaborador excluído.")
-                            showScreen("people")
-                        } catch (error: Exception) {
-                            toast(error.message ?: "Não foi possível excluir o colaborador.")
-                        }
-                    }
-                    .show()
-            }
-            item.addView(delete, matchWrap())
-            content.addView(item, spaced())
         }
+        search.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) { render(s?.toString().orEmpty()) }
+        })
+        render("")
+    }
+
+    private fun showCollaboratorActions(person: LocalCollaborator) {
+        val options = arrayOf("Editar dados", "Excluir colaborador")
+        AlertDialog.Builder(this)
+            .setTitle(person.name)
+            .setMessage("Função: " + person.role + "\nEquipe: " + person.team + "\nChave Pix: " + person.pixKey + "\nTitular: " + person.pixHolder)
+            .setItems(options) { _, which ->
+                if (which == 0) openCollaboratorDialog(person) else {
+                    AlertDialog.Builder(this)
+                        .setTitle("Excluir colaborador?")
+                        .setMessage("Deseja excluir " + person.name + "? Para proteger o histórico, só é possível excluir quem ainda não possui despesas registradas.")
+                        .setNegativeButton("Cancelar", null)
+                        .setPositiveButton("Excluir") { _, _ ->
+                            try { database.deleteCollaborator(person.id); toast("Colaborador excluído."); showScreen("people") }
+                            catch (error: Exception) { toast(error.message ?: "Não foi possível excluir o colaborador.") }
+                        }.show()
+                }
+            }.setNegativeButton("Fechar", null).show()
     }
 
     private fun renderFiles() {
