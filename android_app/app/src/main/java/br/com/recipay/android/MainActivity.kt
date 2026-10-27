@@ -525,9 +525,12 @@ class MainActivity : Activity() {
         )
         val currentIndex = collaborators.indexOfFirst { it.id == receipt.collaboratorId }
         if (currentIndex >= 0) personSpinner.setSelection(currentIndex)
+        val payment = database.paymentStatus(receipt.externalId)
         val amount = field("Ex.: 250,99").apply {
             inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
             setText(NumberFormat.getNumberInstance(Locale("pt", "BR")).format(receipt.amountCents / 100.0))
+            isEnabled = payment.paidCents == 0L
+            alpha = if (isEnabled) 1f else 0.55f
         }
         val description = field("Descrição").apply { setText(receipt.description) }
         val date = field("AAAA-MM-DD").apply { setText(receipt.expenseDate) }
@@ -539,9 +542,11 @@ class MainActivity : Activity() {
         form.addView(description, fieldParams())
         form.addView(fieldLabel("Data da despesa"))
         form.addView(date, fieldParams())
-        form.addView(label("O comprovante atual será mantido. Despesas com pagamentos vinculados não podem ser editadas.", 12, muted, false).apply {
-            setPadding(0, dp(8), 0, 0)
-        })
+        form.addView(label(
+            if (payment.paidCents > 0L) "Esta despesa já tem pagamento: colaborador, descrição e data podem ser alterados; o valor fica bloqueado para proteger o histórico. O comprovante será mantido."
+            else "Você pode alterar os dados da despesa. O comprovante atual será mantido.",
+            12, muted, false
+        ).apply { setPadding(0, dp(8), 0, 0) })
         AlertDialog.Builder(this)
             .setTitle("Editar despesa")
             .setView(form)
@@ -1117,7 +1122,7 @@ class MainActivity : Activity() {
         val options = mutableListOf<String>(); val actions = mutableListOf<String>()
         options += if (hasProof) "Ver comprovante" else "Adicionar comprovante"
         actions += if (hasProof) "view" else "attach"
-        if (payment.paidCents == 0L) { options += "Editar despesa"; actions += "edit" }
+        options += "Editar despesa"; actions += "edit"
         options += "Excluir despesa"; actions += "delete"
         val proofText = if (hasProof) "Comprovante anexado" else "Comprovante ainda não anexado"
         AlertDialog.Builder(this)

@@ -276,12 +276,12 @@ class ReceiptDatabase(context: Context) : SQLiteOpenHelper(context, "recipay_sup
         require(amountCents > 0L) { "O valor deve ser maior que zero." }
         require(collaborator.isNotBlank() && description.isNotBlank()) { "Preencha colaborador e descrição." }
         val receipt = listReceipts().firstOrNull { it.id == id } ?: error("Despesa não encontrada.")
-        val applications = readableDatabase.rawQuery(
-            "SELECT COUNT(*) FROM payment_applications WHERE receipt_external_id = ?",
+        val paid = readableDatabase.rawQuery(
+            "SELECT COALESCE(SUM(amount_cents), 0) FROM payment_applications WHERE receipt_external_id = ?",
             arrayOf(receipt.externalId)
         ).use { cursor -> cursor.moveToFirst(); cursor.getLong(0) }
-        require(applications == 0L) {
-            "Esta despesa já possui pagamentos vinculados. Para preservar o histórico, seus dados não podem ser alterados."
+        require(paid == 0L || amountCents == receipt.amountCents) {
+            "Esta despesa já tem pagamentos vinculados. Você pode editar colaborador, descrição e data, mas não alterar o valor."
         }
         val values = ContentValues().apply {
             put("collaborator_id", collaboratorId)
