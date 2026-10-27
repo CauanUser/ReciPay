@@ -221,7 +221,7 @@ class MainActivity : Activity() {
             details.addView(label(receipt.description, 12, muted, false).apply {
                 setPadding(0, dp(3), 0, 0); maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END
             })
-            details.addView(label(receipt.expenseDate + " • " + payment.status, 11, if (payment.status.equals("Pago", true)) green else muted, false).apply {
+            details.addView(label(receipt.expenseDate + " • Cadastro concluído", 11, green, true).apply {
                 setPadding(0, dp(4), 0, 0)
             })
             header.addView(details, LinearLayout.LayoutParams(0, -2, 1f))
@@ -542,7 +542,7 @@ class MainActivity : Activity() {
             photoButton.text = "Definir quantidade de fotos"
             statusLabel.text = "Anexe fotos ou um PDF como comprovante antes de salvar."
             statusLabel.setTextColor(muted)
-            toast("Despesa salva neste celular.")
+            toast("Cadastro concluído. Despesa salva neste celular.")
             showScreen("receipts")
         } catch (error: Exception) {
             toast(error.message ?: "Não foi possível salvar a despesa.")
@@ -621,7 +621,7 @@ class MainActivity : Activity() {
                         receipt.id, selected.id, selected.name, cents,
                         description.text.toString().trim(), expenseDate
                     )
-                    toast("Despesa atualizada. O comprovante foi mantido.")
+                    toast("Cadastro concluído: alterações salvas. O comprovante foi mantido.")
                     showScreen("receipts")
                 } catch (error: Exception) {
                     toast(error.message ?: "Não foi possível atualizar a despesa.")
@@ -1202,8 +1202,8 @@ class MainActivity : Activity() {
         val proofText = if (hasProof) "Comprovante anexado" else "Comprovante ainda não anexado"
         AlertDialog.Builder(this)
             .setTitle(receipt.collaborator + " • " + money(receipt.amountCents))
-            .setMessage(receipt.description + "\nData: " + receipt.expenseDate + "\nStatus: " + payment.status +
-                "\nPago: " + money(payment.paidCents) + " • Saldo: " + money(payment.balanceCents) + "\n" + proofText)
+            .setMessage(receipt.description + "\nData: " + receipt.expenseDate + "\nCadastro: Concluído" +
+                "\nPagamento: " + payment.status + "\nPago: " + money(payment.paidCents) + " • Saldo: " + money(payment.balanceCents) + "\n" + proofText)
             .setItems(options.toTypedArray()) { _, which ->
                 when (actions[which]) {
                     "view" -> openReceiptImage(receipt)
