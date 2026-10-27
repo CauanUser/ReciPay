@@ -35,8 +35,9 @@ class MainActivity : Activity() {
     private lateinit var dateInput: EditText
     private lateinit var photoButton: Button
     private lateinit var statusLabel: TextView
-    private var selectedPhotoUri: Uri? = null
+    private var selectedPhotoUris: MutableList<Uri> = mutableListOf()
     private var pendingCameraUri: Uri? = null
+    private lateinit var photoCountInput: EditText
     private var currentScreen: String = "home"
 
     private val blue = Color.rgb(139, 92, 246)
@@ -322,10 +323,16 @@ class MainActivity : Activity() {
         form.addView(descriptionInput, fieldParams())
         form.addView(fieldLabel("Data da despesa"))
         form.addView(dateInput, fieldParams())
-        photoButton = actionButton("Tirar foto ou anexar comprovante")
+        form.addView(fieldLabel("Quantidade de recibos"))
+        photoCountInput = field("Ex.: 5").apply {
+            inputType = InputType.TYPE_CLASS_NUMBER
+            setText("1")
+        }
+        form.addView(photoCountInput, fieldParams())
+        photoButton = actionButton("Tirar fotos ou selecionar recibos")
         photoButton.setOnClickListener { showPhotoOptions() }
         form.addView(photoButton, fieldParams())
-        statusLabel = label("Obrigatório para salvar.", 13, muted, false).apply { setPadding(0, dp(3), 0, dp(10)) }
+        statusLabel = label("Informe a quantidade e anexe todas as fotos.", 13, muted, false).apply { setPadding(0, dp(3), 0, dp(10)) }
         form.addView(statusLabel)
         val save = actionButton("Salvar despesa")
         save.setOnClickListener { saveReceipt() }
@@ -497,14 +504,19 @@ class MainActivity : Activity() {
         val amountText = amountInput.text.toString().trim()
         val description = descriptionInput.text.toString().trim()
         val date = dateInput.text.toString().trim()
-        val photoUri = selectedPhotoUri
+        val photoUris = selectedPhotoUris.toList()
+        val expectedPhotoCount = photoCountInput.text.toString().toIntOrNull()
 
         if (selectedCollaborator == null || amountText.isBlank() || description.isBlank() || date.isBlank()) {
             toast(if (selectedCollaborator == null) "Cadastre um colaborador antes de registrar a despesa." else "Preencha todos os campos.")
             return
         }
-        if (photoUri == null) {
-            toast("Anexe o comprovante antes de salvar.")
+        if (expectedPhotoCount == null || expectedPhotoCount !in 1..50) {
+            toast("Informe uma quantidade entre 1 e 50 recibos.")
+            return
+        }
+        if (photoUris.size != expectedPhotoCount) {
+            toast("Você informou $expectedPhotoCount recibo(s), mas anexou ${photoUris.size} foto(s).")
             return
         }
         // Aceita formatos brasileiros (250,99 / 1.250,99) e ponto decimal (250.99).
@@ -530,20 +542,25 @@ class MainActivity : Activity() {
 
         try {
             val attachmentDir = File(filesDir, "comprovantes").apply { mkdirs() }
-            val attachment = File(attachmentDir, "comprovante_${System.currentTimeMillis()}.img")
-            contentResolver.openInputStream(photoUri).use { input ->
-                if (input == null) error("Não foi possível abrir o comprovante.")
-                attachment.outputStream().use { output -> input.copyTo(output) }
+            val attachmentPaths = photoUris.mapIndexed { index, uri ->
+                val attachment = File(attachmentDir, "comprovante_${System.currentTimeMillis()}_${index + 1}.img")
+                contentResolver.openInputStream(uri).use { input ->
+                    if (input == null) error("Não foi possível abrir o recibo ${index + 1}.")
+                    attachment.outputStream().use { output -> input.copyTo(output) }
+                }
+                attachment.absolutePath
             }
-            database.addReceipt(selectedCollaborator.id, selectedCollaborator.name, amountCents, description, date, attachment.absolutePath)
+            // Mantém compatibilidade com registros antigos: o primeiro caminho continua no início.
+            database.addReceipt(selectedCollaborator.id, selectedCollaborator.name, amountCents, description, date, attachmentPaths.joinToString("\\n"))
             amountInput.text.clear()
             descriptionInput.text.clear()
             dateInput.setText(java.time.LocalDate.now().toString())
-            selectedPhotoUri = null
-            photoButton.text = "Tirar foto ou anexar comprovante"
-            statusLabel.text = "Comprovante obrigatório."
+            photoCountInput.setText("1")
+            selectedPhotoUris.clear()
+            photoButton.text = "Tirar fotos ou selecionar recibos"
+            statusLabel.text = "Informe a quantidade e anexe todas as fotos."
             statusLabel.setTextColor(muted)
-            toast("Despesa salva neste celular.")
+            toast("Despesa salva com ${attachmentPaths.size} comprovante(s).")
             showScreen("receipts")
         } catch (error: Exception) {
             toast(error.message ?: "Não foi possível salvar a despesa.")
@@ -630,9 +647,13 @@ class MainActivity : Activity() {
 
     private fun showPhotoOptions() {
         AlertDialog.Builder(this)
-            .setTitle("Adicionar comprovante")
-            .setItems(arrayOf("📷 Tirar foto agora", "🖼️ Escolher da galeria")) { _, which ->
-                if (which == 0) takeReceiptPhoto() else openPhotoPicker()
+            .setTitle("Adicionar recibos (${selectedPhotoUris.size} anexados)")
+            .setItems(arrayOf("📷 Tirar próxima foto", "🖼️ Selecionar fotos da galeria", "🗑️ Limpar fotos selecionadas")) { _, which ->
+                when (which) {
+                    0 -> takeReceiptPhoto()
+                    1 -> openPhotoPicker()
+                    2 -> { selectedPhotoUris.clear(); updatePhotoSelectionStatus() }
+                }
             }
             .setNegativeButton("Cancelar", null)
             .show()
@@ -664,8 +685,23 @@ class MainActivity : Activity() {
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
             type = "image/*"
+            putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
         }
         startActivityForResult(intent, REQUEST_PHOTO)
+    }
+
+
+    private fun updatePhotoSelectionStatus() {
+        val expected = photoCountInput.text.toString().toIntOrNull()
+        photoButton.text = "Adicionar fotos (${selectedPhotoUris.size}${if (expected != null) " de $expected" else ""})"
+        statusLabel.text = if (expected == null || expected !in 1..50) {
+            "Informe quantos recibos serão anexados (1 a 50)."
+        } else if (selectedPhotoUris.size == expected) {
+            "Todas as $expected fotos foram selecionadas. Pronto para salvar."
+        } else {
+            "Fotos anexadas: ${selectedPhotoUris.size} de $expected. Faltam ${kotlin.math.max(0, expected - selectedPhotoUris.size)}."
+        }
+        statusLabel.setTextColor(if (expected != null && expected > 0 && selectedPhotoUris.size == expected) green else muted)
     }
 
     private fun choosePaymentReturn() {
@@ -698,15 +734,10 @@ class MainActivity : Activity() {
             return
         }
         if (requestCode == REQUEST_CAMERA) {
-            selectedPhotoUri = pendingCameraUri
+            pendingCameraUri?.let { selectedPhotoUris.add(it) }
             pendingCameraUri = null
-            if (selectedPhotoUri != null) {
-                photoButton.text = "Foto do recibo selecionada ✓"
-                statusLabel.text = "Foto capturada. Ela será salva junto à despesa."
-                statusLabel.setTextColor(green)
-            } else {
-                toast("Não foi possível obter a foto. Tente novamente.")
-            }
+            if (selectedPhotoUris.isNotEmpty()) updatePhotoSelectionStatus()
+            else toast("Não foi possível obter a foto. Tente novamente.")
             return
         }
         if (data?.data == null) return
@@ -750,12 +781,12 @@ class MainActivity : Activity() {
             return
         }
         if (requestCode != REQUEST_PHOTO) return
-        selectedPhotoUri = data.data
-        if (selectedPhotoUri != null) {
-            photoButton.text = "Comprovante selecionado ✓"
-            statusLabel.text = "Imagem selecionada. Ela será copiada para o armazenamento privado do app ao salvar."
-            statusLabel.setTextColor(green)
-        }
+        val selected = mutableListOf<Uri>()
+        data.clipData?.let { clip ->
+            for (index in 0 until clip.itemCount) selected += clip.getItemAt(index).uri
+        } ?: data.data?.let { selected += it }
+        selectedPhotoUris.addAll(selected)
+        updatePhotoSelectionStatus()
     }
 
     private fun themedSpinnerAdapter(items: List<String>): ArrayAdapter<String> =
