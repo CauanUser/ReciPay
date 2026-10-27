@@ -35,7 +35,9 @@ class MainActivity : Activity() {
     private lateinit var dateInput: EditText
     private lateinit var photoButton: Button
     private lateinit var statusLabel: TextView
-    private var selectedPhotoUri: Uri? = null
+    private val selectedPhotoUris = mutableListOf<Uri>()
+    private var expectedPhotoCount = 0
+    private var cameraCaptureMode = false
     private var pendingCameraUri: Uri? = null
     private var pendingAttachmentReceiptId: Long? = null
     private var currentScreen: String = "home"
