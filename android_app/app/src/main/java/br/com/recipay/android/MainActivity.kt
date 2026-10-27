@@ -580,14 +580,32 @@ class MainActivity : Activity() {
             .show()
     }
 
+    private fun askPhotoCount() {
+        val countInput = EditText(this).apply { hint = "Quantidade de fotos (1 a 50)"; inputType = InputType.TYPE_CLASS_NUMBER }
+        AlertDialog.Builder(this).setTitle("Quantas fotos terá esta despesa?")
+            .setMessage("Informe a quantidade antes de anexar. Só será possível salvar quando todas estiverem selecionadas.")
+            .setView(countInput).setNegativeButton("Cancelar", null)
+            .setPositiveButton("Continuar") { _, _ ->
+                val count = countInput.text.toString().toIntOrNull()
+                if (count == null || count !in 1..50) { toast("Informe uma quantidade entre 1 e 50."); return@setPositiveButton }
+                expectedPhotoCount = count
+                selectedPhotoUris.clear()
+                showPhotoOptions()
+            }.show()
+    }
+
+    private fun updatePhotoSelectionStatus() {
+        photoButton.text = "Fotos: " + selectedPhotoUris.size + "/" + expectedPhotoCount + " • Adicionar/alterar"
+        statusLabel.text = if (selectedPhotoUris.size == expectedPhotoCount) "Quantidade completa. Pode salvar." else "Faltam " + (expectedPhotoCount - selectedPhotoUris.size) + " foto(s)."
+        statusLabel.setTextColor(if (selectedPhotoUris.size == expectedPhotoCount) green else muted)
+    }
+
     private fun showPhotoOptions() {
-        AlertDialog.Builder(this)
-            .setTitle("Adicionar comprovante")
-            .setItems(arrayOf("📷 Tirar foto agora", "🖼️ Escolher da galeria")) { _, which ->
-                if (which == 0) takeReceiptPhoto() else openPhotoPicker()
-            }
-            .setNegativeButton("Cancelar", null)
-            .show()
+        AlertDialog.Builder(this).setTitle("Adicionar fotos (" + selectedPhotoUris.size + "/" + expectedPhotoCount + ")")
+            .setItems(arrayOf("📷 Fotografar uma por vez", "🖼️ Selecionar várias da galeria")) { _, which ->
+                if (which == 0) { cameraCaptureMode = true; takeReceiptPhoto() }
+                else { cameraCaptureMode = false; openPhotoPicker() }
+            }.setNegativeButton("Cancelar", null).show()
     }
 
     private fun takeReceiptPhoto() {
