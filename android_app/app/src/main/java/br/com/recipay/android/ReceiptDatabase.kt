@@ -250,7 +250,10 @@ class ReceiptDatabase(context: Context) : SQLiteOpenHelper(context, "recipay_sup
         val db = writableDatabase
         db.beginTransaction()
         try {
-            val existing = receiptAttachments(id).toSet()
+            val existing = mutableSetOf<String>()
+            db.query("receipt_attachments", arrayOf("file_path"), "receipt_id = ?", arrayOf(id.toString()), null, null, null).use { cursor ->
+                while (cursor.moveToNext()) existing += cursor.getString(0)
+            }
             attachmentPaths.filterNot { it in existing }.forEach { path ->
                 db.insertOrThrow("receipt_attachments", null, ContentValues().apply {
                     put("receipt_id", id); put("file_path", path); put("created_at", System.currentTimeMillis())
