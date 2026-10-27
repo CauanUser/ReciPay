@@ -634,6 +634,7 @@ class MainActivity : Activity() {
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
             type = "image/*"
+            putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
         }
         startActivityForResult(intent, REQUEST_PHOTO)
     }
@@ -685,15 +686,15 @@ class MainActivity : Activity() {
             return
         }
         if (requestCode == REQUEST_CAMERA) {
-            selectedPhotoUri = pendingCameraUri
+            val captured = pendingCameraUri
             pendingCameraUri = null
-            if (selectedPhotoUri != null) {
-                photoButton.text = "Foto do recibo selecionada ✓"
-                statusLabel.text = "Foto capturada. Ela será salva junto à despesa."
-                statusLabel.setTextColor(green)
-            } else {
-                toast("Não foi possível obter a foto. Tente novamente.")
-            }
+            if (captured != null) selectedPhotoUris += captured
+            if (cameraCaptureMode && selectedPhotoUris.size < expectedPhotoCount) {
+                AlertDialog.Builder(this).setTitle("Foto " + selectedPhotoUris.size + " de " + expectedPhotoCount)
+                    .setMessage("Deseja fotografar a próxima?")
+                    .setNegativeButton("Parar") { _, _ -> updatePhotoSelectionStatus() }
+                    .setPositiveButton("Próxima foto") { _, _ -> takeReceiptPhoto() }.show()
+            } else updatePhotoSelectionStatus()
             return
         }
         if (data?.data == null) return
@@ -808,12 +809,16 @@ class MainActivity : Activity() {
             return
         }
         if (requestCode != REQUEST_PHOTO) return
-        selectedPhotoUri = data.data
-        if (selectedPhotoUri != null) {
-            photoButton.text = "Comprovante selecionado ✓"
-            statusLabel.text = "Imagem selecionada. Ela será copiada para o armazenamento privado do app ao salvar."
-            statusLabel.setTextColor(green)
+        selectedPhotoUris.clear()
+        val clip = data.clipData
+        if (clip != null) {
+            for (i in 0 until clip.itemCount) selectedPhotoUris += clip.getItemAt(i).uri
+        } else data.data?.let { selectedPhotoUris += it }
+        if (selectedPhotoUris.size > expectedPhotoCount) {
+            selectedPhotoUris.subList(expectedPhotoCount, selectedPhotoUris.size).clear()
+            toast("Foram mantidas apenas as " + expectedPhotoCount + " fotos definidas.")
         }
+        updatePhotoSelectionStatus()
     }
 
     private fun themedSpinnerAdapter(items: List<String>): ArrayAdapter<String> =
