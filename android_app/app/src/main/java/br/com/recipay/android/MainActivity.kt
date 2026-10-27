@@ -221,7 +221,8 @@ class MainActivity : Activity() {
             details.addView(label(receipt.description, 12, muted, false).apply {
                 setPadding(0, dp(3), 0, 0); maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END
             })
-            details.addView(label(receipt.expenseDate + " • Cadastro concluído", 11, green, true).apply {
+            val registrationComplete = isRegistrationComplete(receipt)
+            details.addView(label(receipt.expenseDate.ifBlank { "Data não informada" } + " • " + if (registrationComplete) "Cadastro concluído" else "Cadastro pendente", 11, if (registrationComplete) green else Color.rgb(251, 191, 36), true).apply {
                 setPadding(0, dp(4), 0, 0)
             })
             header.addView(details, LinearLayout.LayoutParams(0, -2, 1f))
@@ -268,7 +269,7 @@ class MainActivity : Activity() {
             inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
         }
         descriptionInput = field("Ex.: transporte, alimentação")
-        dateInput = field("AAAA-MM-DD").apply { setText(java.time.LocalDate.now().toString()) }
+        dateInput = field("AAAA-MM-DD (obrigatória)")
         form.addView(fieldLabel("Colaborador"))
         form.addView(collaboratorSpinner, fieldParams())
         form.addView(fieldLabel("Valor (R$)"))
@@ -1191,6 +1192,15 @@ class MainActivity : Activity() {
         render("", options.first())
     }
 
+    private fun isRegistrationComplete(receipt: LocalReceipt): Boolean {
+        val validDate = try { java.time.LocalDate.parse(receipt.expenseDate); true } catch (_: Exception) { false }
+        val hasSavedProof = database.receiptAttachments(receipt.id).any { path ->
+            val file = File(path)
+            file.isFile && file.length() > 0L
+        }
+        return validDate && hasSavedProof
+    }
+
     private fun showReceiptActions(receipt: LocalReceipt) {
         val payment = database.paymentStatus(receipt.externalId)
         val hasProof = database.receiptAttachments(receipt.id).any { File(it).exists() }
@@ -1202,7 +1212,7 @@ class MainActivity : Activity() {
         val proofText = if (hasProof) "Comprovante anexado" else "Comprovante ainda não anexado"
         AlertDialog.Builder(this)
             .setTitle(receipt.collaborator + " • " + money(receipt.amountCents))
-            .setMessage(receipt.description + "\nData: " + receipt.expenseDate + "\nCadastro: Concluído" +
+            .setMessage(receipt.description + "\nData: " + receipt.expenseDate.ifBlank { "Não informada" } + "\nCadastro: " + (if (isRegistrationComplete(receipt)) "Concluído" else "Pendente — informe a data e anexe o comprovante") +
                 "\nPagamento: " + payment.status + "\nPago: " + money(payment.paidCents) + " • Saldo: " + money(payment.balanceCents) + "\n" + proofText)
             .setItems(options.toTypedArray()) { _, which ->
                 when (actions[which]) {
