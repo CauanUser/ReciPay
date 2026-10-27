@@ -888,7 +888,30 @@ class MainActivity : Activity() {
                 empty.addView(label(if (receipts.isEmpty()) "Use “Nova despesa” ou importe um Excel." else "Tente mudar a busca ou o filtro.", 13, muted, false).apply { setPadding(0, dp(5), 0, 0) })
                 list.addView(empty, spaced()); return
             }
-            filtered.forEach { receipt -> list.addView(expenseSummaryRow(receipt) { showReceiptActions(receipt) }, spaced()) }
+            filtered.forEach { receipt ->
+                list.addView(expenseSummaryRow(receipt) { showReceiptActions(receipt) }, spaced())
+                val payment = database.paymentStatus(receipt.externalId)
+                val actions = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    setPadding(0, 0, 0, dp(10))
+                }
+                actions.addView(actionButton("Editar").apply {
+                    textSize = 12f
+                    setOnClickListener {
+                        if (payment.paidCents > 0L) toast("Esta despesa tem pagamentos vinculados e não pode ser editada.")
+                        else openReceiptEditDialog(receipt)
+                    }
+                }, LinearLayout.LayoutParams(0, dp(42), 1f).apply { rightMargin = dp(4) })
+                actions.addView(actionButton("Anexar fotos").apply {
+                    textSize = 12f
+                    setOnClickListener { chooseAttachmentForReceipt(receipt.id) }
+                }, LinearLayout.LayoutParams(0, dp(42), 1f).apply { leftMargin = dp(4); rightMargin = dp(4) })
+                actions.addView(actionButton("Excluir").apply {
+                    textSize = 12f
+                    setOnClickListener { confirmDeleteReceipt(receipt) }
+                }, LinearLayout.LayoutParams(0, dp(42), 1f).apply { leftMargin = dp(4) })
+                list.addView(actions, LinearLayout.LayoutParams(-1, -2))
+            }
         }
         search.addTextChangedListener(object : android.text.TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
