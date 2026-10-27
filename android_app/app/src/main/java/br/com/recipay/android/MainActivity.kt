@@ -551,7 +551,7 @@ class MainActivity : Activity() {
                 attachment.absolutePath
             }
             // Mantém compatibilidade com registros antigos: o primeiro caminho continua no início.
-            database.addReceipt(selectedCollaborator.id, selectedCollaborator.name, amountCents, description, date, attachmentPaths.joinToString("\\n"))
+            database.addReceipt(selectedCollaborator.id, selectedCollaborator.name, amountCents, description, date, attachmentPaths.joinToString("\n"))
             amountInput.text.clear()
             descriptionInput.text.clear()
             dateInput.setText(java.time.LocalDate.now().toString())
@@ -740,7 +740,7 @@ class MainActivity : Activity() {
             else toast("Não foi possível obter a foto. Tente novamente.")
             return
         }
-        if (data?.data == null) return
+        if (data == null) return
         if (requestCode == REQUEST_EXPORT) {
             try {
                 contentResolver.openOutputStream(data.data!!).use { output ->
