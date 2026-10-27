@@ -29,7 +29,7 @@ data class LocalCollaborator(
     val role: String
 )
 
-class ReceiptDatabase(context: Context) : SQLiteOpenHelper(context, "recipay_supervisor.db", null, 6) {
+class ReceiptDatabase(context: Context) : SQLiteOpenHelper(context, "recipay_supervisor.db", null, 7) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
             """CREATE TABLE receipts (
@@ -46,6 +46,12 @@ class ReceiptDatabase(context: Context) : SQLiteOpenHelper(context, "recipay_sup
         )
         createCollaboratorsTable(db)
         createPaymentTables(db)
+        createReceiptAttachmentsTable(db)
+    }
+
+    private fun createReceiptAttachmentsTable(db: SQLiteDatabase) {
+        db.execSQL("CREATE TABLE IF NOT EXISTS receipt_attachments (id INTEGER PRIMARY KEY AUTOINCREMENT, receipt_id INTEGER NOT NULL, file_path TEXT NOT NULL, created_at INTEGER NOT NULL, FOREIGN KEY(receipt_id) REFERENCES receipts(id) ON DELETE CASCADE)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_receipt_attachments_receipt ON receipt_attachments(receipt_id)")
     }
 
     private fun createPaymentTables(db: SQLiteDatabase) {
@@ -116,6 +122,10 @@ class ReceiptDatabase(context: Context) : SQLiteOpenHelper(context, "recipay_sup
         }
         if (oldVersion < 5) createPaymentTables(db)
         if (oldVersion < 6) db.execSQL("ALTER TABLE collaborators ADD COLUMN role TEXT NOT NULL DEFAULT 'Funcionário'")
+        if (oldVersion < 7) {
+            createReceiptAttachmentsTable(db)
+            db.execSQL("INSERT INTO receipt_attachments(receipt_id, file_path, created_at) SELECT id, attachment_path, created_at FROM receipts WHERE attachment_path <> ''")
+        }
     }
 
     fun addCollaborator(name: String, team: String, role: String, pixType: String, pixKey: String, pixHolder: String): Long {
@@ -226,14 +236,33 @@ class ReceiptDatabase(context: Context) : SQLiteOpenHelper(context, "recipay_sup
         return true
     }
 
-    fun setReceiptAttachment(id: Long, attachmentPath: String) {
-        require(attachmentPath.isNotBlank()) { "Caminho do comprovante inválido." }
-        val changed = writableDatabase.update(
-            "receipts", ContentValues().apply { put("attachment_path", attachmentPath) },
-            "id = ?", arrayOf(id.toString())
-        )
-        require(changed == 1) { "Despesa não encontrada." }
+    fun receiptAttachments(id: Long): List<String> {
+        val paths = mutableListOf<String>()
+        readableDatabase.query("receipt_attachments", arrayOf("file_path"), "receipt_id = ?", arrayOf(id.toString()), null, null, "id ASC").use { cursor ->
+            while (cursor.moveToNext()) paths += cursor.getString(0)
+        }
+        if (paths.isEmpty()) listReceipts().firstOrNull { it.id == id }?.attachmentPath?.takeIf { it.isNotBlank() }?.let { paths += it }
+        return paths.distinct()
     }
+
+    fun addReceiptAttachments(id: Long, attachmentPaths: List<String>) {
+        require(attachmentPaths.isNotEmpty() && attachmentPaths.all { it.isNotBlank() }) { "Selecione pelo menos uma foto válida." }
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            val existing = receiptAttachments(id).toSet()
+            attachmentPaths.filterNot { it in existing }.forEach { path ->
+                db.insertOrThrow("receipt_attachments", null, ContentValues().apply {
+                    put("receipt_id", id); put("file_path", path); put("created_at", System.currentTimeMillis())
+                })
+            }
+            val first = receiptAttachments(id).firstOrNull() ?: attachmentPaths.first()
+            db.update("receipts", ContentValues().apply { put("attachment_path", first) }, "id = ?", arrayOf(id.toString()))
+            db.setTransactionSuccessful()
+        } finally { db.endTransaction() }
+    }
+
+    fun setReceiptAttachment(id: Long, attachmentPath: String) = addReceiptAttachments(id, listOf(attachmentPath))
 
 
     /** Atualiza despesas apenas enquanto não houver pagamentos vinculados. O ID externo é preservado. */
@@ -271,7 +300,8 @@ class ReceiptDatabase(context: Context) : SQLiteOpenHelper(context, "recipay_sup
         ).use { cursor -> cursor.moveToFirst(); cursor.getLong(0) }
         require(paid == 0L) { "Esta despesa já tem pagamentos vinculados. Não é seguro excluí-la." }
         writableDatabase.delete("receipts", "id = ?", arrayOf(id.toString()))
-        File(receipt.attachmentPath).delete()
+        receiptAttachments(id).forEach { File(it).delete() }
+        writableDatabase.delete("receipt_attachments", "receipt_id = ?", arrayOf(id.toString()))
     }
 
     fun listReceipts(): List<LocalReceipt> {
