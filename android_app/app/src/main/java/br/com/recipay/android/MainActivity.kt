@@ -236,13 +236,7 @@ class MainActivity : Activity() {
                 setPadding(0, dp(10), 0, 0)
             }
             val edit = actionButton("Editar despesa").apply {
-                setOnClickListener {
-                    if (payment.paidCents > 0L) {
-                        toast("Esta despesa já tem pagamentos vinculados; não é possível alterar seus dados sem afetar o histórico.")
-                    } else {
-                        openReceiptEditDialog(receipt)
-                    }
-                }
+                setOnClickListener { openReceiptEditDialog(receipt) }
             }
             val delete = actionButton("Excluir").apply {
                 setOnClickListener { confirmDeleteReceipt(receipt) }
@@ -557,6 +551,10 @@ class MainActivity : Activity() {
         }
         val description = field("Descrição").apply { setText(receipt.description) }
         val date = field("AAAA-MM-DD").apply { setText(receipt.expenseDate) }
+        val payment = database.paymentStatus(receipt.externalId)
+        val hasPayments = payment.paidCents > 0L
+        personSpinner.isEnabled = !hasPayments
+        amount.isEnabled = !hasPayments
         form.addView(fieldLabel("Colaborador"))
         form.addView(personSpinner, fieldParams())
         form.addView(fieldLabel("Valor (R$)"))
@@ -565,9 +563,11 @@ class MainActivity : Activity() {
         form.addView(description, fieldParams())
         form.addView(fieldLabel("Data da despesa"))
         form.addView(date, fieldParams())
-        form.addView(label("O comprovante atual será mantido. Despesas com pagamentos vinculados não podem ser editadas.", 12, muted, false).apply {
-            setPadding(0, dp(8), 0, 0)
-        })
+        form.addView(label(
+            if (hasPayments) "Esta despesa já tem pagamentos. Você pode editar a descrição e a data; colaborador e valor ficam bloqueados para proteger o histórico financeiro. O comprovante será mantido."
+            else "Você pode alterar colaborador, valor, descrição e data. O comprovante atual será mantido.",
+            12, muted, false
+        ).apply { setPadding(0, dp(8), 0, 0) })
         AlertDialog.Builder(this)
             .setTitle("Editar despesa")
             .setView(form)
@@ -1030,7 +1030,7 @@ class MainActivity : Activity() {
         val options = mutableListOf<String>(); val actions = mutableListOf<String>()
         options += if (hasProof) "Ver comprovante" else "Adicionar comprovante"
         actions += if (hasProof) "view" else "attach"
-        if (payment.paidCents == 0L) { options += "Editar despesa"; actions += "edit" }
+        options += "Editar despesa"; actions += "edit"
         options += "Excluir despesa"; actions += "delete"
         val proofText = if (hasProof) "Comprovante anexado" else "Comprovante ainda não anexado"
         AlertDialog.Builder(this)
