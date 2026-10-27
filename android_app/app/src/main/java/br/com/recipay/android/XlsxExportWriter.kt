@@ -27,11 +27,13 @@ object XlsxExportWriter {
 
         data class Attachment(val bytes: ByteArray, val hash: String, val extension: String)
         val attachments = receipts.associate { r ->
-            val file = java.io.File(r.attachmentPath)
-            require(file.isFile) { "Comprovante da despesa de ${r.collaborator} não foi encontrado neste celular." }
-            val bytes = file.readBytes()
-            val ext = file.extension.lowercase(Locale.ROOT).let { if (it.matches(Regex("[a-z0-9]{1,8}"))) ".$it" else ".img" }
-            r.externalId to Attachment(bytes, sha256(bytes), ext)
+            val files = r.attachmentPath.split('\\n').filter { it.isNotBlank() }.map { java.io.File(it) }
+            require(files.isNotEmpty() && files.all { it.isFile }) { "Comprovante da despesa de ${r.collaborator} não foi encontrado neste celular." }
+            r.externalId to files.map { file ->
+                val bytes = file.readBytes()
+                val ext = file.extension.lowercase(Locale.ROOT).let { if (it.matches(Regex("[a-z0-9]{1,8}"))) ".$it" else ".img" }
+                Attachment(bytes, sha256(bytes), ext)
+            }
         }
         val sorted = receipts.sortedWith(compareBy<LocalReceipt> { it.collaborator.lowercase(Locale.ROOT) }.thenBy { it.expenseDate })
         val colabJson = JSONArray()
@@ -42,12 +44,16 @@ object XlsxExportWriter {
         val receiptJson = JSONArray()
         sorted.forEach { r ->
             val c = collaboratorsById[r.collaboratorId] ?: error("Colaborador não encontrado.")
-            val a = attachments.getValue(r.externalId)
+            val proofs = attachments.getValue(r.externalId)
+            val primary = proofs.first()
+            val proofArray = JSONArray()
+            proofs.forEach { proof -> proofArray.put(JSONObject().put("hash", proof.hash).put("extensao", proof.extension)) }
             receiptJson.put(JSONObject().put("id", r.externalId).put("ref", reference(r.externalId))
                 .put("colaborador_id", c.externalId).put("equipe", c.team).put("valor_centavos", r.amountCents)
                 .put("descricao", r.description).put("data_despesa", r.expenseDate).put("categoria", "OUTROS")
                 .put("chave_nfe", JSONObject.NULL)
-                .put("comprovante", JSONObject().put("hash", a.hash).put("extensao", a.extension)))
+                .put("comprovante", JSONObject().put("hash", primary.hash).put("extensao", primary.extension))
+                .put("comprovantes", proofArray))
         }
         val total = sorted.fold(0L) { sum, r -> Math.addExact(sum, r.amountCents) }
         val generatedAt = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.ROOT).format(Date())
@@ -63,7 +69,7 @@ object XlsxExportWriter {
         hiddenRows += listOf("RECIPAY", FORMAT_VERSION, "Não altere esta aba.")
         hiddenRows += listOf("hash", 0, dataHash)
         addChunks(hiddenRows, "dados", jsonText)
-        attachments.values.distinctBy { it.hash }.forEach {
+        attachments.values.flatten().distinctBy { it.hash }.forEach {
             addChunks(hiddenRows, "comp:${it.hash}", Base64.encodeToString(it.bytes, Base64.NO_WRAP))
         }
 
