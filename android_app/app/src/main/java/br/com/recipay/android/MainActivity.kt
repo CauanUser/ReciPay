@@ -5,6 +5,10 @@ import android.app.AlertDialog
 import android.content.Intent
 import androidx.core.content.FileProvider
 import android.graphics.Color
+import android.graphics.BitmapFactory
+import android.graphics.pdf.PdfDocument
+import android.graphics.Paint
+import android.graphics.RectF
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
@@ -358,6 +362,13 @@ class MainActivity : Activity() {
         importCard.addView(import, matchWrap())
         content.addView(importCard, spaced())
 
+        val pdfCard = card()
+        pdfCard.addView(label("3. Comprovantes em PDF", 17, ink, true))
+        pdfCard.addView(label("Junte várias fotos em um único PDF organizado ou selecione um PDF que já está pronto para compartilhar.", 13, muted, false).apply { setPadding(0, dp(5), 0, dp(12)) })
+        pdfCard.addView(actionButton("Juntar fotos em PDF").apply { setOnClickListener { choosePhotosForPdf() } }, matchWrap())
+        pdfCard.addView(actionButton("Enviar PDF pronto").apply { setOnClickListener { chooseReadyPdf() } }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+        content.addView(pdfCard, spaced())
+
         val note = card()
         note.addView(label("Dica", 14, blue, true))
         note.addView(label("Envie ao Gestor somente a planilha exportada pelo ReciPay. Depois, importe o arquivo de retorno que ele gerar.", 13, muted, false).apply { setPadding(0, dp(4), 0, 0) })
@@ -630,6 +641,73 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun choosePhotosForPdf() {
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "image/*"
+            putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+        }
+        startActivityForResult(intent, REQUEST_PDF_PHOTOS)
+    }
+
+    private fun chooseReadyPdf() {
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "application/pdf"
+        }
+        startActivityForResult(intent, REQUEST_READY_PDF)
+    }
+
+    private fun createAndSharePhotoPdf(uris: List<Uri>) {
+        if (uris.isEmpty()) error("Selecione pelo menos uma foto.")
+        val document = PdfDocument()
+        try {
+            val pageWidth = 595
+            val pageHeight = 842
+            uris.forEachIndexed { index, uri ->
+                val bitmap = contentResolver.openInputStream(uri).use { input ->
+                    if (input == null) error("Não foi possível abrir uma das fotos.")
+                    android.graphics.BitmapFactory.decodeStream(input) ?: error("Uma das imagens não pôde ser lida.")
+                }
+                try {
+                    val pageInfo = PdfDocument.PageInfo.Builder(pageWidth, pageHeight, index + 1).create()
+                    val page = document.startPage(pageInfo)
+                    val canvas = page.canvas
+                    canvas.drawColor(Color.WHITE)
+                    val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+                    val margin = 24f
+                    val maxWidth = pageWidth - margin * 2
+                    val maxHeight = pageHeight - margin * 2 - 24f
+                    val scale = minOf(maxWidth / bitmap.width, maxHeight / bitmap.height)
+                    val drawWidth = bitmap.width * scale
+                    val drawHeight = bitmap.height * scale
+                    val left = (pageWidth - drawWidth) / 2f
+                    val top = margin + 24f + (maxHeight - drawHeight) / 2f
+                    canvas.drawText("Comprovante • ${index + 1}/${uris.size}", margin, 20f, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                        color = Color.DKGRAY; textSize = 12f
+                    })
+                    canvas.drawBitmap(bitmap, null, RectF(left, top, left + drawWidth, top + drawHeight), paint)
+                    document.finishPage(page)
+                } finally { bitmap.recycle() }
+            }
+            val out = File(cacheDir, "recipay_comprovantes_${System.currentTimeMillis()}.pdf")
+            out.outputStream().use { document.writeTo(it) }
+            sharePdf(out)
+        } finally { document.close() }
+    }
+
+    private fun sharePdf(file: File) {
+        val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = "application/pdf"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            putExtra(Intent.EXTRA_SUBJECT, "Comprovantes de recibos - ReciPay")
+            putExtra(Intent.EXTRA_TEXT, "Segue o PDF com os comprovantes.")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        startActivity(Intent.createChooser(send, "Enviar comprovante em PDF"))
+    }
+
     private fun openPhotoPicker() {
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
@@ -696,6 +774,28 @@ class MainActivity : Activity() {
                     .setNegativeButton("Parar") { _, _ -> updatePhotoSelectionStatus() }
                     .setPositiveButton("Próxima foto") { _, _ -> takeReceiptPhoto() }.show()
             } else updatePhotoSelectionStatus()
+            return
+        }
+        if (requestCode == REQUEST_PDF_PHOTOS) {
+            try {
+                val uris = mutableListOf<Uri>()
+                data?.clipData?.let { clip -> for (i in 0 until clip.itemCount) uris += clip.getItemAt(i).uri }
+                if (uris.isEmpty()) data?.data?.let { uris += it }
+                if (uris.isEmpty()) error("Selecione pelo menos uma foto.")
+                createAndSharePhotoPdf(uris)
+            } catch (error: Exception) { toast(error.message ?: "Não foi possível criar o PDF.") }
+            return
+        }
+        if (requestCode == REQUEST_READY_PDF) {
+            try {
+                val uri = data?.data ?: error("Nenhum PDF foi selecionado.")
+                val file = File(cacheDir, "recipay_comprovante_pronto_${System.currentTimeMillis()}.pdf")
+                contentResolver.openInputStream(uri).use { input ->
+                    if (input == null) error("Não foi possível abrir o PDF.")
+                    file.outputStream().use { output -> input.copyTo(output) }
+                }
+                sharePdf(file)
+            } catch (error: Exception) { toast(error.message ?: "Não foi possível compartilhar o PDF.") }
             return
         }
         if (data?.data == null) return
@@ -1024,6 +1124,8 @@ class MainActivity : Activity() {
         private const val REQUEST_RETURN = 1045
         private const val REQUEST_IMPORT_EXPENSES = 1047
         private const val REQUEST_ATTACH_RECEIPT = 1048
+        private const val REQUEST_PDF_PHOTOS = 1049
+        private const val REQUEST_READY_PDF = 1050
         private const val SUPERVISOR_ID = "00000000-0000-4000-8000-000000000001"
     }
 }
