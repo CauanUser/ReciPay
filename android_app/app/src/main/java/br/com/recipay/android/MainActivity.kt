@@ -897,11 +897,14 @@ class MainActivity : Activity() {
         }
         if (requestCode == REQUEST_EXPORT) {
             try {
+                val allReceipts = database.listReceipts()
+                val allCollaborators = database.listCollaborators()
+                val allAttachments = allReceipts.associate { receipt -> receipt.id to database.receiptAttachments(receipt.id) }
                 contentResolver.openOutputStream(data.data!!).use { output ->
                     if (output == null) error("Não foi possível criar a planilha.")
-                    XlsxExportWriter.write(output, database.listReceipts(), database.listCollaborators())
+                    XlsxExportWriter.write(output, allReceipts, allCollaborators, allAttachments, "Supervisor Android")
                 }
-                toast("Planilha criada. Envie o arquivo ao Gestor para importar no Recipay.")
+                toast("Planilha criada com " + allReceipts.size + " despesa(s), incluindo as sem comprovante anexado.")
             } catch (error: Exception) {
                 toast(error.message ?: "Não foi possível exportar as despesas.")
             }
