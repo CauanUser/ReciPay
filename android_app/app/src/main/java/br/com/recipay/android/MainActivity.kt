@@ -37,6 +37,7 @@ class MainActivity : Activity() {
     private lateinit var statusLabel: TextView
     private var selectedPhotoUri: Uri? = null
     private var pendingCameraUri: Uri? = null
+    private var pendingAttachmentReceiptId: Long? = null
     private var currentScreen: String = "home"
 
     private val blue = Color.rgb(139, 92, 246)
@@ -605,6 +606,23 @@ class MainActivity : Activity() {
         startActivityForResult(intent, REQUEST_PHOTO)
     }
 
+    private fun chooseExpenseSpreadsheet() {
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        }
+        startActivityForResult(intent, REQUEST_IMPORT_EXPENSES)
+    }
+
+    private fun chooseAttachmentForReceipt(receiptId: Long) {
+        pendingAttachmentReceiptId = receiptId
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "image/*"
+        }
+        startActivityForResult(intent, REQUEST_ATTACH_RECEIPT)
+    }
+
     private fun choosePaymentReturn() {
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
@@ -647,6 +665,77 @@ class MainActivity : Activity() {
             return
         }
         if (data?.data == null) return
+        if (requestCode == REQUEST_ATTACH_RECEIPT) {
+            val receiptId = pendingAttachmentReceiptId
+            pendingAttachmentReceiptId = null
+            if (receiptId == null) {
+                toast("Não foi possível identificar a despesa.")
+                return
+            }
+            try {
+                val attachmentDir = File(filesDir, "comprovantes").apply { mkdirs() }
+                val attachment = File(attachmentDir, "comprovante_importado_${receiptId}_${System.currentTimeMillis()}.img")
+                contentResolver.openInputStream(data.data!!).use { input ->
+                    if (input == null) error("Não foi possível abrir a imagem.")
+                    attachment.outputStream().use { output -> input.copyTo(output) }
+                }
+                database.setReceiptAttachment(receiptId, attachment.absolutePath)
+                toast("Comprovante anexado à despesa.")
+                showScreen("receipts")
+            } catch (error: Exception) {
+                toast(error.message ?: "Não foi possível anexar o comprovante.")
+            }
+            return
+        }
+        if (requestCode == REQUEST_IMPORT_EXPENSES) {
+            try {
+                val uri = data.data!!
+                val fileName = uri.lastPathSegment ?: "despesas.xlsx"
+                val preview = contentResolver.openInputStream(uri).use { input ->
+                    if (input == null) error("Não foi possível abrir a planilha.")
+                    ExpenseSpreadsheetImporter.read(input, fileName)
+                }
+                val valid = preview.validRows.size
+                val invalid = preview.invalidRows.size
+                val examples = preview.rows.take(8).joinToString("\n") { row ->
+                    val status = if (row.errors.isEmpty()) "OK" else "ERRO: ${row.errors.joinToString(", ")}"
+                    "Linha ${row.rowNumber}: ${row.recipient} — ${money(row.amountCents)} — ${row.date.ifBlank { "sem data" }} [$status]"
+                }
+                val message = "Arquivo: ${preview.fileName}\nLinhas válidas: $valid\nLinhas com erro: $invalid\n\n${examples}\n\nA importação ignora duplicatas exatas e cria despesas sem foto quando necessário. Registros com erro serão ignorados."
+                AlertDialog.Builder(this)
+                    .setTitle("Conferir importação")
+                    .setMessage(message)
+                    .setNegativeButton("Cancelar", null)
+                    .setPositiveButton("Importar válidas") { _, _ ->
+                        try {
+                            var imported = 0
+                            var duplicates = 0
+                            val collaborators = database.listCollaborators()
+                            preview.validRows.forEach { row ->
+                                val person = collaborators.firstOrNull { it.name.equals(row.recipient, ignoreCase = true) }
+                                val details = mutableListOf<String>()
+                                if (row.sourceStatus.isNotBlank()) details += "Status original: ${row.sourceStatus}"
+                                if (row.pixKey.isNotBlank()) details += "Chave Pix: ${row.pixKey}"
+                                if (row.pixType.isNotBlank()) details += "Tipo de chave: ${row.pixType}"
+                                if (row.observations.isNotBlank() && !row.observations.equals(row.description, ignoreCase = true)) details += "Observações: ${row.observations}"
+                                val description = (listOf(row.description) + details).joinToString(" · ")
+                                val added = database.importSpreadsheetExpense(
+                                    person?.id, row.recipient, row.amountCents, description, row.date
+                                )
+                                if (added) imported++ else duplicates++
+                            }
+                            toast("Importação concluída: $imported nova(s), $duplicates duplicada(s), $invalid com erro.")
+                            showScreen("receipts")
+                        } catch (error: Exception) {
+                            toast(error.message ?: "Não foi possível importar a planilha.")
+                        }
+                    }
+                    .show()
+            } catch (error: Exception) {
+                toast(error.message ?: "Planilha inválida. Use um arquivo .xlsx com cabeçalhos na primeira linha.")
+            }
+            return
+        }
         if (requestCode == REQUEST_EXPORT) {
             try {
                 contentResolver.openOutputStream(data.data!!).use { output ->
@@ -733,6 +822,12 @@ class MainActivity : Activity() {
         val add = actionButton("+ Nova despesa")
         add.setOnClickListener { showScreen("new") }
         content.addView(add, spaced())
+        val importSheet = actionButton("Importar despesas de planilha (.xlsx)")
+        importSheet.setOnClickListener { chooseExpenseSpreadsheet() }
+        content.addView(importSheet, spaced())
+        content.addView(label("A importação aceita despesas sem foto. Você poderá anexar o comprovante depois.", 12, muted, false).apply {
+            setPadding(0, 0, 0, dp(10))
+        })
 
         val total = receipts.fold(0L) { sum, receipt -> Math.addExact(sum, receipt.amountCents) }
         val statuses = receipts.map { database.paymentStatus(it.externalId) }
@@ -796,6 +891,14 @@ class MainActivity : Activity() {
                 item.addView(label(money(receipt.amountCents), 22, blue, true).apply { setPadding(0, dp(5), 0, 0) })
                 item.addView(label(receipt.description, 14, ink, false).apply { setPadding(0, dp(4), 0, 0) })
                 item.addView(label("Data: ${receipt.expenseDate}", 12, muted, false).apply { setPadding(0, dp(5), 0, 0) })
+                if (receipt.attachmentPath.isBlank() || !File(receipt.attachmentPath).exists()) {
+                    item.addView(label("Comprovante ausente — pode anexar depois.", 12, red, true).apply {
+                        setPadding(0, dp(6), 0, dp(6))
+                    })
+                    val attach = actionButton("Adicionar foto do comprovante")
+                    attach.setOnClickListener { chooseAttachmentForReceipt(receipt.id) }
+                    item.addView(attach, matchWrap())
+                }
                 val statusColor = when (payment.status.lowercase(Locale.ROOT)) {
                     "pago" -> green
                     "parcial" -> Color.rgb(180, 83, 9)
@@ -928,6 +1031,8 @@ class MainActivity : Activity() {
         private const val REQUEST_CAMERA = 1046
         private const val REQUEST_EXPORT = 1044
         private const val REQUEST_RETURN = 1045
+        private const val REQUEST_IMPORT_EXPENSES = 1047
+        private const val REQUEST_ATTACH_RECEIPT = 1048
         private const val SUPERVISOR_ID = "00000000-0000-4000-8000-000000000001"
     }
 }
