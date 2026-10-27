@@ -117,12 +117,15 @@ object ExpenseSpreadsheetImporter {
             fun findHeader(vararg candidates: String): Int? {
                 val normalizedCandidates = candidates.map { normalize(it) }
                 return headers.entries.firstOrNull { (_, header) ->
-                    normalizedCandidates.any { candidate -> header == candidate || (candidate == "valor" && header.startsWith("valor ")) }
+                    normalizedCandidates.any { candidate -> header == candidate }
                 }?.key
             }
             val recipientCol = findHeader("destinatario", "beneficiario", "colaborador", "nome", "favorecido", "recebedor")
                 ?: continue
-            val amountCol = findHeader("valor", "valor r", "valor total", "valor da despesa", "amount")
+            // Prefere a coluna de valor individual. "Valor total" só é fallback quando
+            // a planilha não tem uma coluna própria chamada Valor.
+            val amountCol = findHeader("valor", "valor r", "valor da despesa", "amount")
+                ?: findHeader("valor total")
                 ?: continue
             val dateCol = findHeader("data", "data da despesa", "data pagamento", "data do pagamento")
             val descriptionCol = findHeader("descricao", "despesa", "categoria", "motivo")
@@ -134,6 +137,10 @@ object ExpenseSpreadsheetImporter {
                 val row = parsed[index]
                 if (row.values.all { it.isBlank() }) continue
                 val recipient = row[recipientCol].orEmpty()
+                // Ignora linhas de total/subtotal e resumos: elas não representam uma despesa individual.
+                val recipientNormalized = normalize(recipient)
+                if (recipientNormalized in setOf("total", "total geral", "subtotal", "soma", "saldo", "saldo total", "valor total", "total de despesas", "total a pagar", "total pago") ||
+                    recipientNormalized.startsWith("subtotal ") || recipientNormalized.startsWith("total geral ")) continue
                 val amount = parseMoney(row[amountCol].orEmpty())
                 val rawDate = dateCol?.let { row[it].orEmpty() }.orEmpty()
                 val date = normalizeDate(rawDate)

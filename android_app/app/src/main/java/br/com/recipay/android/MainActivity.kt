@@ -35,7 +35,9 @@ class MainActivity : Activity() {
     private lateinit var dateInput: EditText
     private lateinit var photoButton: Button
     private lateinit var statusLabel: TextView
-    private var selectedPhotoUri: Uri? = null
+    private val selectedPhotoUris = mutableListOf<Uri>()
+    private var expectedPhotoCount = 0
+    private var cameraCaptureMode = false
     private var pendingCameraUri: Uri? = null
     private var pendingAttachmentReceiptId: Long? = null
     private var currentScreen: String = "home"
@@ -83,85 +85,42 @@ class MainActivity : Activity() {
     private lateinit var screenRoot: LinearLayout
 
     private fun renderHome() {
-        screenRoot = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.rgb(11, 6, 25))
-        }
+        screenRoot = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(Color.rgb(9, 10, 18)) }
         val header = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(22), dp(20), dp(22), dp(18))
-            background = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, intArrayOf(Color.rgb(31, 10, 67), Color.rgb(91, 33, 182), blue))
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(20), dp(12), dp(20), dp(12)); setBackgroundColor(Color.rgb(15, 16, 28))
         }
-        val brandRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        val brandLogo = android.widget.ImageView(this).apply {
-            setImageResource(R.drawable.recipay_launcher_foreground)
-            scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
+        val logo = android.widget.ImageView(this).apply {
+            setImageResource(R.drawable.recipay_launcher_foreground); scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
             contentDescription = "Logo ReciPay"
-            setPadding(dp(4), dp(4), dp(4), dp(4))
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(Color.argb(38, 255, 255, 255))
-                setStroke(dp(1), Color.argb(95, 255, 255, 255))
-            }
         }
-        brandRow.addView(brandLogo, LinearLayout.LayoutParams(dp(58), dp(58)).apply {
-            rightMargin = dp(13)
-        })
-        val brandText = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        brandText.addView(label("ReciPay", 27, Color.WHITE, true))
-        brandText.addView(label("GESTÃO DE DESPESAS  •  SUPERVISOR", 12, Color.rgb(233, 213, 255), true).apply {
-            setPadding(0, dp(3), 0, 0)
-        })
-        brandRow.addView(brandText, LinearLayout.LayoutParams(0, -2, 1f))
-        header.addView(brandRow)
+        header.addView(logo, LinearLayout.LayoutParams(dp(38), dp(38)).apply { rightMargin = dp(10) })
+        val brand = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        brand.addView(label("ReciPay", 20, ink, true))
+        brand.addView(label("Controle de despesas", 12, muted, false))
+        header.addView(brand, LinearLayout.LayoutParams(0, -2, 1f))
         screenRoot.addView(header)
-
-        val scroll = ScrollView(this)
-        content = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(18), dp(18), dp(18), dp(20))
-        }
-        scroll.addView(content)
-        screenRoot.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
-
+        val scroll = ScrollView(this).apply { isFillViewport = true }
+        content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(20), dp(18), dp(24)) }
+        scroll.addView(content); screenRoot.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
         val nav = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            setPadding(dp(4), dp(7), dp(4), dp(7))
-            setBackgroundColor(Color.rgb(17, 10, 34))
-            elevation = dp(8).toFloat()
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER
+            setPadding(dp(8), dp(7), dp(8), dp(7)); setBackgroundColor(Color.rgb(15, 16, 28))
         }
-        listOf(
-            "home" to "Início",
-            "receipts" to "Despesas",
-            "people" to "Pessoas",
-            "files" to "Arquivos"
-        ).forEach { (key, title) ->
+        listOf("home" to "Início", "receipts" to "Despesas", "people" to "Pessoas", "files" to "Mais").forEach { (key, title) ->
             val button = TextView(this).apply {
-                text = title
-                textSize = 12f
-                gravity = Gravity.CENTER
-                setPadding(dp(2), dp(12), dp(2), dp(12))
-                setTypeface(typeface, Typeface.BOLD)
-                background = if (key == currentScreen) GradientDrawable().apply { setColor(Color.rgb(46, 25, 78)); cornerRadius = dp(12).toFloat() } else GradientDrawable().apply { setColor(Color.TRANSPARENT); cornerRadius = dp(12).toFloat() }
-                setTextColor(if (key == currentScreen) blue else muted)
+                text = title; textSize = 12f; gravity = Gravity.CENTER
+                setPadding(dp(2), dp(12), dp(2), dp(12)); setTypeface(typeface, Typeface.BOLD)
+                setTextColor(if (key == currentScreen) blue else muted); background = navBackground(key == currentScreen)
                 setOnClickListener { showScreen(key) }
             }
             nav.addView(button, LinearLayout.LayoutParams(0, -2, 1f))
         }
-        screenRoot.addView(nav)
-        setContentView(screenRoot)
-        showScreen("home")
+        screenRoot.addView(nav); setContentView(screenRoot); showScreen("home")
     }
 
     private fun showScreen(screen: String) {
-        currentScreen = screen
-        content.removeAllViews()
+        currentScreen = screen; content.removeAllViews()
         when (screen) {
             "home" -> renderDashboard()
             "new" -> renderExpenseForm()
@@ -169,73 +128,103 @@ class MainActivity : Activity() {
             "people" -> renderCollaborators()
             "files" -> renderFiles()
         }
-        // Rebuild the bottom navigation to reflect the selected destination.
         val nav = screenRoot.getChildAt(2) as? LinearLayout ?: return
+        val keys = listOf("home", "receipts", "people", "files")
         for (i in 0 until nav.childCount) {
             val item = nav.getChildAt(i) as? TextView ?: continue
-            val key = listOf("home", "receipts", "people", "files").getOrNull(i)
-            val selected = key == screen || (screen == "new" && key == "receipts")
-            item.setTextColor(if (selected) blue else muted)
-            item.background = if (selected) GradientDrawable().apply { setColor(Color.rgb(46, 25, 78)); cornerRadius = dp(12).toFloat() } else GradientDrawable().apply { setColor(Color.TRANSPARENT); cornerRadius = dp(12).toFloat() }
+            val selected = keys.getOrNull(i) == screen || (screen == "new" && keys.getOrNull(i) == "receipts")
+            item.setTextColor(if (selected) blue else muted); item.background = navBackground(selected)
         }
+    }
+
+    private fun navBackground(selected: Boolean) = GradientDrawable().apply {
+        setColor(if (selected) Color.rgb(40, 31, 67) else Color.TRANSPARENT); cornerRadius = dp(12).toFloat()
     }
 
     private fun renderDashboard() {
         val receipts = database.listReceipts()
         val collaborators = database.listCollaborators()
         val total = receipts.fold(0L) { sum, item -> Math.addExact(sum, item.amountCents) }
-        content.addView(label("Olá, Supervisor 👋", 24, ink, true))
-        content.addView(label("Aqui está o resumo das suas despesas.", 14, muted, false).apply {
-            setPadding(0, dp(5), 0, dp(18))
-        })
-        val summary = card()
-        summary.addView(label("Total registrado", 14, muted, false))
-        summary.addView(label(money(total), 28, blue, true).apply { setPadding(0, dp(5), 0, dp(3)) })
-        summary.addView(label("${receipts.size} despesas  ·  ${collaborators.size} colaboradores", 13, muted, false))
-        content.addView(summary, spaced())
-
-        val pendingCount = receipts.count { database.paymentStatus(it.externalId).status.equals("Pendente", ignoreCase = true) }
-        val partialCount = receipts.count { database.paymentStatus(it.externalId).status.equals("Parcial", ignoreCase = true) }
-        val paidCount = receipts.count { database.paymentStatus(it.externalId).status.equals("Pago", ignoreCase = true) }
-        val paymentTotals = receipts.map { database.paymentStatus(it.externalId) }
-        val paidAmount = paymentTotals.fold(0L) { sum, status -> Math.addExact(sum, status.paidCents) }
-        val openAmount = paymentTotals.fold(0L) { sum, status -> Math.addExact(sum, status.balanceCents) }
-        val statusSummary = card()
-        statusSummary.addView(label("Situação dos pagamentos", 16, ink, true))
-        statusSummary.addView(label("Pendentes: $pendingCount", 14, red, true).apply { setPadding(0, dp(8), 0, 0) })
-        statusSummary.addView(label("Parciais: $partialCount", 14, blue, true).apply { setPadding(0, dp(5), 0, 0) })
-        statusSummary.addView(label("Pagas: $paidCount", 14, green, true).apply { setPadding(0, dp(5), 0, 0) })
-        statusSummary.addView(label("Valor já pago: ${money(paidAmount)}", 13, green, true).apply { setPadding(0, dp(9), 0, 0) })
-        statusSummary.addView(label("Saldo em aberto: ${money(openAmount)}", 13, red, true).apply { setPadding(0, dp(4), 0, 0) })
-        content.addView(statusSummary, spaced())
-
-        content.addView(label("Ações rápidas", 18, ink, true).apply { setPadding(0, dp(12), 0, dp(8)) })
-        val add = actionButton("+ Cadastrar despesa")
-        add.setOnClickListener { showScreen("new") }
-        content.addView(add, spaced())
-        val people = actionButton("Cadastrar colaborador")
-        people.setOnClickListener { showScreen("people"); openCollaboratorDialog() }
-        content.addView(people, spaced())
-        val export = actionButton("Preparar arquivo para o Gestor")
-        export.setOnClickListener { showScreen("files") }
-        content.addView(export, spaced())
-
-        content.addView(label("Atividade recente", 18, ink, true).apply { setPadding(0, dp(12), 0, dp(8)) })
+        val statuses = receipts.map { database.paymentStatus(it.externalId) }
+        val openAmount = statuses.fold(0L) { sum, status -> Math.addExact(sum, status.balanceCents) }
+        val pendingCount = statuses.count { it.status.equals("Pendente", true) }
+        val missingProof = receipts.count { it.attachmentPath.isBlank() || !File(it.attachmentPath).exists() }
+        content.addView(label("Visão geral", 25, ink, true))
+        content.addView(label("O essencial, sem complicação.", 14, muted, false).apply { setPadding(0, dp(4), 0, dp(18)) })
+        val balance = card()
+        balance.addView(label("TOTAL DE DESPESAS", 11, muted, true))
+        balance.addView(label(money(total), 30, ink, true).apply { setPadding(0, dp(7), 0, dp(3)) })
+        balance.addView(label(receipts.size.toString() + " registros • " + collaborators.size + " pessoas", 13, muted, false))
+        balance.addView(android.view.View(this).apply { setBackgroundColor(Color.rgb(55, 49, 72)) },
+            LinearLayout.LayoutParams(-1, dp(1)).apply { topMargin = dp(15); bottomMargin = dp(12) })
+        balance.addView(label("Saldo em aberto", 12, muted, false))
+        balance.addView(label(money(openAmount), 20, if (openAmount > 0) Color.rgb(251, 191, 36) else green, true).apply { setPadding(0, dp(3), 0, 0) })
+        content.addView(balance, spaced())
+        content.addView(label("Acesso rápido", 17, ink, true).apply { setPadding(0, dp(12), 0, dp(10)) })
+        val actions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        actions.addView(quickAction("＋", "Nova despesa") { showScreen("new") }, LinearLayout.LayoutParams(0, dp(92), 1f).apply { rightMargin = dp(5) })
+        actions.addView(quickAction("↗", "Importar Excel") { showScreen("receipts"); chooseExpenseSpreadsheet() }, LinearLayout.LayoutParams(0, dp(92), 1f).apply { leftMargin = dp(5); rightMargin = dp(5) })
+        actions.addView(quickAction("＋", "Pessoa") { showScreen("people"); openCollaboratorDialog() }, LinearLayout.LayoutParams(0, dp(92), 1f).apply { leftMargin = dp(5) })
+        content.addView(actions)
+        content.addView(label("Atenção", 17, ink, true).apply { setPadding(0, dp(22), 0, dp(10)) })
+        val attention = card()
+        if (missingProof > 0 || pendingCount > 0) {
+            if (missingProof > 0) attention.addView(label(missingProof.toString() + " despesa(s) sem comprovante", 14, Color.rgb(251, 191, 36), true))
+            if (pendingCount > 0) attention.addView(label(pendingCount.toString() + " pagamento(s) pendente(s)", 14, muted, false).apply { setPadding(0, dp(5), 0, 0) })
+            attention.addView(actionButton("Revisar despesas").apply { setOnClickListener { showScreen("receipts") } },
+                LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
+        } else {
+            attention.addView(label("Tudo em dia", 15, green, true))
+            attention.addView(label("Nenhuma pendência importante encontrada.", 13, muted, false).apply { setPadding(0, dp(4), 0, 0) })
+        }
+        content.addView(attention, spaced())
+        content.addView(label("Recentes", 17, ink, true).apply { setPadding(0, dp(12), 0, dp(10)) })
         if (receipts.isEmpty()) {
             val empty = card()
-            empty.addView(label("Ainda não há despesas. Comece cadastrando sua primeira despesa.", 14, muted, false))
+            empty.addView(label("Suas despesas aparecerão aqui.", 15, ink, true))
+            empty.addView(label("Cadastre uma despesa ou importe sua planilha para começar.", 13, muted, false).apply { setPadding(0, dp(5), 0, 0) })
             content.addView(empty, spaced())
         } else {
-            receipts.take(3).forEach { receipt ->
-                val item = card()
-                item.addView(label(receipt.collaborator, 15, ink, true))
-                item.addView(label(money(receipt.amountCents), 19, blue, true).apply { setPadding(0, dp(4), 0, 0) })
-                item.addView(label("${receipt.description} · ${receipt.expenseDate}", 13, muted, false).apply { setPadding(0, dp(3), 0, 0) })
-                content.addView(item, spaced())
+            receipts.take(3).forEach { receipt -> content.addView(expenseSummaryRow(receipt) { showReceiptActions(receipt) }, spaced()) }
+            content.addView(actionButton("Ver todas").apply { setOnClickListener { showScreen("receipts") } }, spaced())
+        }
+    }
+
+    private fun quickAction(symbol: String, title: String, action: () -> Unit): LinearLayout =
+        LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER; setPadding(dp(5), dp(10), dp(5), dp(10))
+            background = GradientDrawable().apply { setColor(Color.rgb(22, 23, 38)); cornerRadius = dp(16).toFloat(); setStroke(dp(1), Color.rgb(49, 47, 69)) }
+            addView(label(symbol, 23, blue, true).apply { gravity = Gravity.CENTER })
+            addView(label(title, 11, ink, true).apply { gravity = Gravity.CENTER; setPadding(0, dp(7), 0, 0) })
+            setOnClickListener { action() }
+        }
+
+    private fun expenseSummaryRow(receipt: LocalReceipt, onClick: () -> Unit): LinearLayout {
+        val payment = database.paymentStatus(receipt.externalId)
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(14), dp(13), dp(14), dp(13))
+            background = GradientDrawable().apply { setColor(Color.rgb(22, 23, 38)); cornerRadius = dp(14).toFloat(); setStroke(dp(1), Color.rgb(49, 47, 69)) }
+            val details = LinearLayout(this@MainActivity).apply { orientation = LinearLayout.VERTICAL }
+            details.addView(label(receipt.collaborator, 14, ink, true))
+            details.addView(label(receipt.description, 12, muted, false).apply { setPadding(0, dp(3), 0, 0); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END })
+            details.addView(label(receipt.expenseDate + " • " + payment.status, 11, if (payment.status.equals("Pago", true)) green else muted, false).apply { setPadding(0, dp(4), 0, 0) })
+            addView(details, LinearLayout.LayoutParams(0, -2, 1f))
+            val trailing = LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                addView(label(money(receipt.amountCents), 14, ink, true).apply {
+                    gravity = Gravity.END
+                    setPadding(dp(8), 0, 0, dp(4))
+                })
+                addView(label("Opções  ›", 11, blue, true).apply {
+                    gravity = Gravity.END
+                    setPadding(dp(8), dp(3), 0, 0)
+                })
+                setOnClickListener { onClick() }
             }
-            val all = actionButton("Ver todas as despesas")
-            all.setOnClickListener { showScreen("receipts") }
-            content.addView(all, spaced())
+            addView(trailing, LinearLayout.LayoutParams(-2, -2))
+            setOnClickListener { onClick() }
         }
     }
 
@@ -260,8 +249,8 @@ class MainActivity : Activity() {
         form.addView(descriptionInput, fieldParams())
         form.addView(fieldLabel("Data da despesa"))
         form.addView(dateInput, fieldParams())
-        photoButton = actionButton("Tirar foto ou anexar comprovante")
-        photoButton.setOnClickListener { showPhotoOptions() }
+        photoButton = actionButton("Definir quantidade de fotos")
+        photoButton.setOnClickListener { askPhotoCount() }
         form.addView(photoButton, fieldParams())
         statusLabel = label("Obrigatório para salvar.", 13, muted, false).apply { setPadding(0, dp(3), 0, dp(10)) }
         form.addView(statusLabel)
@@ -281,55 +270,71 @@ class MainActivity : Activity() {
 
     private fun renderCollaborators() {
         val collaborators = database.listCollaborators()
-        content.addView(label("Pessoas", 23, ink, true))
-        content.addView(label("Colaboradores e suas chaves Pix cadastradas.", 14, muted, false).apply {
-            setPadding(0, dp(5), 0, dp(15))
-        })
-        val add = actionButton("+ Cadastrar colaborador")
-        add.setOnClickListener { openCollaboratorDialog() }
-        content.addView(add, spaced())
+        content.addView(label("Pessoas", 25, ink, true))
+        content.addView(label("Seus colaboradores e dados Pix.", 13, muted, false).apply { setPadding(0, dp(4), 0, dp(16)) })
+        content.addView(actionButton("+ Adicionar pessoa").apply { setOnClickListener { openCollaboratorDialog() } }, spaced())
         if (collaborators.isEmpty()) {
             val empty = card()
-            empty.addView(label("Nenhum colaborador cadastrado.", 15, ink, true))
-            empty.addView(label("Cadastre o colaborador e confirme os dados da chave Pix antes de registrar despesas.", 13, muted, false).apply { setPadding(0, dp(5), 0, 0) })
-            content.addView(empty, spaced())
-            return
+            empty.addView(label("Nenhuma pessoa cadastrada", 16, ink, true))
+            empty.addView(label("Cadastre uma pessoa para começar a registrar despesas.", 13, muted, false).apply { setPadding(0, dp(5), 0, 0) })
+            content.addView(empty, spaced()); return
         }
-        collaborators.forEach { person ->
-            val item = card()
-            item.addView(label(person.name, 17, ink, true))
-            item.addView(label("Função: ${person.role}", 13, blue, true).apply { setPadding(0, dp(4), 0, 0) })
-            if (person.team.isNotBlank()) item.addView(label("Equipe: ${person.team}", 13, muted, false).apply { setPadding(0, dp(3), 0, 0) })
-            item.addView(label("${person.pixType}: ${person.pixKey}", 14, blue, true).apply { setPadding(0, dp(6), 0, 0) })
-            item.addView(label("Titular: ${person.pixHolder}", 13, muted, false).apply { setPadding(0, dp(3), 0, dp(10)) })
-            val edit = actionButton("Editar colaborador")
-            edit.setOnClickListener { openCollaboratorDialog(person) }
-            item.addView(edit, matchWrap())
-            val delete = actionButton("Excluir colaborador").apply {
-                background = GradientDrawable().apply {
-                    setColor(red)
-                    cornerRadius = dp(12).toFloat()
+        val search = field("Buscar colaborador")
+        content.addView(search, spaced())
+        val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        content.addView(list)
+        fun render(queryRaw: String) {
+            list.removeAllViews()
+            val query = queryRaw.trim().lowercase(Locale.ROOT)
+            val filtered = collaborators.filter { it.name.lowercase(Locale.ROOT).contains(query) || it.team.lowercase(Locale.ROOT).contains(query) }
+            if (filtered.isEmpty()) {
+                list.addView(card().apply { addView(label("Nenhuma pessoa encontrada.", 14, muted, false)) }, spaced()); return
+            }
+            filtered.forEach { person ->
+                val item = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+                    setPadding(dp(14), dp(14), dp(14), dp(14))
+                    background = GradientDrawable().apply { setColor(Color.rgb(22, 23, 38)); cornerRadius = dp(14).toFloat(); setStroke(dp(1), Color.rgb(49, 47, 69)) }
                 }
+                val initial = label(person.name.trim().take(1).uppercase(Locale.ROOT), 17, blue, true).apply {
+                    gravity = Gravity.CENTER; background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.rgb(40, 31, 67)) }
+                }
+                item.addView(initial, LinearLayout.LayoutParams(dp(42), dp(42)).apply { rightMargin = dp(12) })
+                val details = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+                details.addView(label(person.name, 15, ink, true))
+                val secondary = listOf(person.role, person.team).filter { it.isNotBlank() }.joinToString(" • ").ifBlank { person.pixType }
+                details.addView(label(secondary, 12, muted, false).apply { setPadding(0, dp(3), 0, 0); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END })
+                item.addView(details, LinearLayout.LayoutParams(0, -2, 1f))
+                item.addView(label("›", 26, muted, false).apply { setPadding(dp(8), 0, 0, 0) })
+                item.setOnClickListener { showCollaboratorActions(person) }
+                list.addView(item, spaced())
             }
-            delete.setOnClickListener {
-                AlertDialog.Builder(this)
-                    .setTitle("Excluir colaborador?")
-                    .setMessage("Deseja excluir ${person.name}? Para proteger o histórico, só é possível excluir quem ainda não possui despesas registradas.")
-                    .setNegativeButton("Cancelar", null)
-                    .setPositiveButton("Excluir") { _, _ ->
-                        try {
-                            database.deleteCollaborator(person.id)
-                            toast("Colaborador excluído.")
-                            showScreen("people")
-                        } catch (error: Exception) {
-                            toast(error.message ?: "Não foi possível excluir o colaborador.")
-                        }
-                    }
-                    .show()
-            }
-            item.addView(delete, matchWrap())
-            content.addView(item, spaced())
         }
+        search.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) { render(s?.toString().orEmpty()) }
+        })
+        render("")
+    }
+
+    private fun showCollaboratorActions(person: LocalCollaborator) {
+        val options = arrayOf("Editar dados", "Excluir colaborador")
+        AlertDialog.Builder(this)
+            .setTitle(person.name)
+            .setMessage("Função: " + person.role + "\nEquipe: " + person.team + "\nChave Pix: " + person.pixKey + "\nTitular: " + person.pixHolder)
+            .setItems(options) { _, which ->
+                if (which == 0) openCollaboratorDialog(person) else {
+                    AlertDialog.Builder(this)
+                        .setTitle("Excluir colaborador?")
+                        .setMessage("Deseja excluir " + person.name + "? Para proteger o histórico, só é possível excluir quem ainda não possui despesas registradas.")
+                        .setNegativeButton("Cancelar", null)
+                        .setPositiveButton("Excluir") { _, _ ->
+                            try { database.deleteCollaborator(person.id); toast("Colaborador excluído."); showScreen("people") }
+                            catch (error: Exception) { toast(error.message ?: "Não foi possível excluir o colaborador.") }
+                        }.show()
+                }
+            }.setNegativeButton("Fechar", null).show()
     }
 
     private fun renderFiles() {
@@ -435,14 +440,18 @@ class MainActivity : Activity() {
         val amountText = amountInput.text.toString().trim()
         val description = descriptionInput.text.toString().trim()
         val date = dateInput.text.toString().trim()
-        val photoUri = selectedPhotoUri
+        val photoUris = selectedPhotoUris.toList()
 
         if (selectedCollaborator == null || amountText.isBlank() || description.isBlank() || date.isBlank()) {
             toast(if (selectedCollaborator == null) "Cadastre um colaborador antes de registrar a despesa." else "Preencha todos os campos.")
             return
         }
-        if (photoUri == null) {
-            toast("Anexe o comprovante antes de salvar.")
+        if (expectedPhotoCount < 1) {
+            toast("Informe antes quantas fotos terá esta despesa.")
+            return
+        }
+        if (photoUris.size != expectedPhotoCount) {
+            toast("Você definiu " + expectedPhotoCount + " foto(s), mas selecionou " + photoUris.size + ". Selecione exatamente essa quantidade.")
             return
         }
         // Aceita formatos brasileiros (250,99 / 1.250,99) e ponto decimal (250.99).
@@ -468,18 +477,23 @@ class MainActivity : Activity() {
 
         try {
             val attachmentDir = File(filesDir, "comprovantes").apply { mkdirs() }
-            val attachment = File(attachmentDir, "comprovante_${System.currentTimeMillis()}.img")
-            contentResolver.openInputStream(photoUri).use { input ->
-                if (input == null) error("Não foi possível abrir o comprovante.")
-                attachment.outputStream().use { output -> input.copyTo(output) }
+            val attachments = photoUris.mapIndexed { index, uri ->
+                val attachment = File(attachmentDir, "comprovante_" + System.currentTimeMillis() + "_" + index + ".img")
+                contentResolver.openInputStream(uri).use { input ->
+                    if (input == null) error("Não foi possível abrir a foto " + (index + 1) + ".")
+                    attachment.outputStream().use { output -> input.copyTo(output) }
+                }
+                attachment
             }
-            database.addReceipt(selectedCollaborator.id, selectedCollaborator.name, amountCents, description, date, attachment.absolutePath)
+            val receiptId = database.addReceipt(selectedCollaborator.id, selectedCollaborator.name, amountCents, description, date, attachments.first().absolutePath)
+            database.addReceiptAttachments(receiptId, attachments.map { it.absolutePath })
             amountInput.text.clear()
             descriptionInput.text.clear()
             dateInput.setText(java.time.LocalDate.now().toString())
-            selectedPhotoUri = null
-            photoButton.text = "Tirar foto ou anexar comprovante"
-            statusLabel.text = "Comprovante obrigatório."
+            selectedPhotoUris.clear()
+            expectedPhotoCount = 0
+            photoButton.text = "Definir quantidade de fotos"
+            statusLabel.text = "Informe a quantidade de fotos antes de salvar."
             statusLabel.setTextColor(muted)
             toast("Despesa salva neste celular.")
             showScreen("receipts")
@@ -566,14 +580,32 @@ class MainActivity : Activity() {
             .show()
     }
 
+    private fun askPhotoCount() {
+        val countInput = EditText(this).apply { hint = "Quantidade de fotos (1 a 50)"; inputType = InputType.TYPE_CLASS_NUMBER }
+        AlertDialog.Builder(this).setTitle("Quantas fotos terá esta despesa?")
+            .setMessage("Informe a quantidade antes de anexar. Só será possível salvar quando todas estiverem selecionadas.")
+            .setView(countInput).setNegativeButton("Cancelar", null)
+            .setPositiveButton("Continuar") { _, _ ->
+                val count = countInput.text.toString().toIntOrNull()
+                if (count == null || count !in 1..50) { toast("Informe uma quantidade entre 1 e 50."); return@setPositiveButton }
+                expectedPhotoCount = count
+                selectedPhotoUris.clear()
+                showPhotoOptions()
+            }.show()
+    }
+
+    private fun updatePhotoSelectionStatus() {
+        photoButton.text = "Fotos: " + selectedPhotoUris.size + "/" + expectedPhotoCount + " • Adicionar/alterar"
+        statusLabel.text = if (selectedPhotoUris.size == expectedPhotoCount) "Quantidade completa. Pode salvar." else "Faltam " + (expectedPhotoCount - selectedPhotoUris.size) + " foto(s)."
+        statusLabel.setTextColor(if (selectedPhotoUris.size == expectedPhotoCount) green else muted)
+    }
+
     private fun showPhotoOptions() {
-        AlertDialog.Builder(this)
-            .setTitle("Adicionar comprovante")
-            .setItems(arrayOf("📷 Tirar foto agora", "🖼️ Escolher da galeria")) { _, which ->
-                if (which == 0) takeReceiptPhoto() else openPhotoPicker()
-            }
-            .setNegativeButton("Cancelar", null)
-            .show()
+        AlertDialog.Builder(this).setTitle("Adicionar fotos (" + selectedPhotoUris.size + "/" + expectedPhotoCount + ")")
+            .setItems(arrayOf("📷 Fotografar uma por vez", "🖼️ Selecionar várias da galeria")) { _, which ->
+                if (which == 0) { cameraCaptureMode = true; takeReceiptPhoto() }
+                else { cameraCaptureMode = false; openPhotoPicker() }
+            }.setNegativeButton("Cancelar", null).show()
     }
 
     private fun takeReceiptPhoto() {
@@ -602,6 +634,7 @@ class MainActivity : Activity() {
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
             type = "image/*"
+            putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
         }
         startActivityForResult(intent, REQUEST_PHOTO)
     }
@@ -619,6 +652,7 @@ class MainActivity : Activity() {
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
             type = "image/*"
+            putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
         }
         startActivityForResult(intent, REQUEST_ATTACH_RECEIPT)
     }
@@ -653,38 +687,41 @@ class MainActivity : Activity() {
             return
         }
         if (requestCode == REQUEST_CAMERA) {
-            selectedPhotoUri = pendingCameraUri
+            val captured = pendingCameraUri
             pendingCameraUri = null
-            if (selectedPhotoUri != null) {
-                photoButton.text = "Foto do recibo selecionada ✓"
-                statusLabel.text = "Foto capturada. Ela será salva junto à despesa."
-                statusLabel.setTextColor(green)
-            } else {
-                toast("Não foi possível obter a foto. Tente novamente.")
-            }
+            if (captured != null) selectedPhotoUris += captured
+            if (cameraCaptureMode && selectedPhotoUris.size < expectedPhotoCount) {
+                AlertDialog.Builder(this).setTitle("Foto " + selectedPhotoUris.size + " de " + expectedPhotoCount)
+                    .setMessage("Deseja fotografar a próxima?")
+                    .setNegativeButton("Parar") { _, _ -> updatePhotoSelectionStatus() }
+                    .setPositiveButton("Próxima foto") { _, _ -> takeReceiptPhoto() }.show()
+            } else updatePhotoSelectionStatus()
             return
         }
         if (data?.data == null) return
         if (requestCode == REQUEST_ATTACH_RECEIPT) {
             val receiptId = pendingAttachmentReceiptId
             pendingAttachmentReceiptId = null
-            if (receiptId == null) {
-                toast("Não foi possível identificar a despesa.")
-                return
-            }
+            if (receiptId == null) { toast("Não foi possível identificar a despesa."); return }
             try {
+                val uris = mutableListOf<Uri>()
+                val clip = data?.clipData
+                if (clip != null) for (i in 0 until clip.itemCount) uris += clip.getItemAt(i).uri
+                else data?.data?.let { uris += it }
+                if (uris.isEmpty()) error("Selecione pelo menos uma foto.")
                 val attachmentDir = File(filesDir, "comprovantes").apply { mkdirs() }
-                val attachment = File(attachmentDir, "comprovante_importado_${receiptId}_${System.currentTimeMillis()}.img")
-                contentResolver.openInputStream(data.data!!).use { input ->
-                    if (input == null) error("Não foi possível abrir a imagem.")
-                    attachment.outputStream().use { output -> input.copyTo(output) }
+                val attachments = uris.mapIndexed { index, uri ->
+                    val attachment = File(attachmentDir, "comprovante_importado_" + receiptId + "_" + System.currentTimeMillis() + "_" + index + ".img")
+                    contentResolver.openInputStream(uri).use { input ->
+                        if (input == null) error("Não foi possível abrir uma das imagens.")
+                        attachment.outputStream().use { output -> input.copyTo(output) }
+                    }
+                    attachment
                 }
-                database.setReceiptAttachment(receiptId, attachment.absolutePath)
-                toast("Comprovante anexado à despesa.")
+                database.addReceiptAttachments(receiptId, attachments.map { it.absolutePath })
+                toast(attachments.size.toString() + " foto(s) anexada(s) à despesa.")
                 showScreen("receipts")
-            } catch (error: Exception) {
-                toast(error.message ?: "Não foi possível anexar o comprovante.")
-            }
+            } catch (error: Exception) { toast(error.message ?: "Não foi possível anexar as fotos.") }
             return
         }
         if (requestCode == REQUEST_IMPORT_EXPENSES) {
@@ -699,7 +736,7 @@ class MainActivity : Activity() {
                 val invalid = preview.invalidRows.size
                 val examples = preview.rows.take(8).joinToString("\n") { row ->
                     val status = if (row.errors.isEmpty()) "OK" else "ERRO: ${row.errors.joinToString(", ")}"
-                    "Linha ${row.rowNumber}: ${row.recipient} — ${money(row.amountCents)} — ${row.date.ifBlank { "sem data" }} [$status]"
+                    "${row.sheetName} • linha ${row.rowNumber}: ${row.recipient} — ${money(row.amountCents)} — ${row.date.ifBlank { "sem data" }} [$status]"
                 }
                 val message = "Arquivo: ${preview.fileName}\nLinhas válidas: $valid\nLinhas com erro: $invalid\n\n${examples}\n\nA importação ignora duplicatas exatas e cria despesas sem foto quando necessário. Registros com erro serão ignorados."
                 AlertDialog.Builder(this)
@@ -776,12 +813,16 @@ class MainActivity : Activity() {
             return
         }
         if (requestCode != REQUEST_PHOTO) return
-        selectedPhotoUri = data.data
-        if (selectedPhotoUri != null) {
-            photoButton.text = "Comprovante selecionado ✓"
-            statusLabel.text = "Imagem selecionada. Ela será copiada para o armazenamento privado do app ao salvar."
-            statusLabel.setTextColor(green)
+        selectedPhotoUris.clear()
+        val clip = data.clipData
+        if (clip != null) {
+            for (i in 0 until clip.itemCount) selectedPhotoUris += clip.getItemAt(i).uri
+        } else data.data?.let { selectedPhotoUris += it }
+        if (selectedPhotoUris.size > expectedPhotoCount) {
+            selectedPhotoUris.subList(expectedPhotoCount, selectedPhotoUris.size).clear()
+            toast("Foram mantidas apenas as " + expectedPhotoCount + " fotos definidas.")
         }
+        updatePhotoSelectionStatus()
     }
 
     private fun themedSpinnerAdapter(items: List<String>): ArrayAdapter<String> =
@@ -815,153 +856,103 @@ class MainActivity : Activity() {
 
     private fun renderReceipts() {
         val receipts = database.listReceipts()
-        content.addView(label("Despesas", 24, ink, true))
-        content.addView(label("Consulte, acompanhe e gerencie os registros antes de enviar ao Gestor.", 14, muted, false).apply {
-            setPadding(0, dp(5), 0, dp(15))
-        })
-        val add = actionButton("+ Nova despesa")
-        add.setOnClickListener { showScreen("new") }
-        content.addView(add, spaced())
-        val importSheet = actionButton("Importar despesas de planilha (.xlsx)")
-        importSheet.setOnClickListener { chooseExpenseSpreadsheet() }
-        content.addView(importSheet, spaced())
-        content.addView(label("A importação aceita despesas sem foto. Você poderá anexar o comprovante depois.", 12, muted, false).apply {
-            setPadding(0, 0, 0, dp(10))
-        })
-
-        val total = receipts.fold(0L) { sum, receipt -> Math.addExact(sum, receipt.amountCents) }
-        val statuses = receipts.map { database.paymentStatus(it.externalId) }
-        val paid = statuses.fold(0L) { sum, status -> Math.addExact(sum, status.paidCents) }
-        val pending = statuses.fold(0L) { sum, status -> Math.addExact(sum, status.balanceCents) }
-        val summary = card()
-        summary.addView(label("Total registrado", 13, muted, false))
-        summary.addView(label(money(total), 25, blue, true).apply { setPadding(0, dp(3), 0, 0) })
-        summary.addView(label("${receipts.size} despesa(s)  ·  ${receipts.count { database.paymentStatus(it.externalId).status == "Pendente" }} pendente(s)", 12, muted, false).apply { setPadding(0, dp(3), 0, 0) })
-        summary.addView(label("Pago: ${money(paid)}     Em aberto: ${money(pending)}", 13, blue, true).apply { setPadding(0, dp(7), 0, 0) })
-        content.addView(summary, spaced())
-
-        val search = field("Buscar por colaborador, descrição ou data")
-        search.setCompoundDrawablePadding(dp(8))
+        content.addView(label("Despesas", 25, ink, true))
+        content.addView(label("Toque em um registro para ver as opções.", 13, muted, false).apply { setPadding(0, dp(4), 0, dp(16)) })
+        val actions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        actions.addView(actionButton("+ Nova despesa").apply { setOnClickListener { showScreen("new") } }, LinearLayout.LayoutParams(0, dp(48), 1f).apply { rightMargin = dp(5) })
+        actions.addView(actionButton("Importar Excel").apply { setOnClickListener { chooseExpenseSpreadsheet() } }, LinearLayout.LayoutParams(0, dp(48), 1f).apply { leftMargin = dp(5) })
+        content.addView(actions, spaced())
+        val search = field("Buscar pessoa ou descrição")
         content.addView(search, spaced())
-
-        content.addView(fieldLabel("Filtrar por situação"))
-        val statusFilter = Spinner(this)
-        val statusOptions = listOf("Todos os status", "Pendente", "Parcial", "Pago")
-        statusFilter.adapter = themedSpinnerAdapter(statusOptions)
-        statusFilter.background = GradientDrawable().apply {
-            setColor(Color.rgb(17, 10, 34))
-            cornerRadius = dp(10).toFloat()
-            setStroke(dp(1), Color.rgb(73, 54, 101))
-        }
-        statusFilter.setPadding(dp(12), dp(8), dp(12), dp(8))
-        statusFilter.setPopupBackgroundDrawable(GradientDrawable().apply {
-            setColor(Color.rgb(23, 14, 43))
-            cornerRadius = dp(10).toFloat()
-            setStroke(dp(1), Color.rgb(73, 54, 101))
-        })
-        content.addView(statusFilter, spaced())
-
-        val listContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        content.addView(listContainer)
-
-        fun renderItems(rawQuery: String, rawStatus: String) {
-            listContainer.removeAllViews()
-            val query = rawQuery.trim().lowercase(Locale.ROOT)
-            val selectedStatus = rawStatus.lowercase(Locale.ROOT)
+        val filter = Spinner(this)
+        val options = listOf("Todas", "Pendente", "Parcial", "Pago")
+        filter.adapter = themedSpinnerAdapter(options); filter.background = fieldBackground()
+        filter.setPadding(dp(10), dp(8), dp(10), dp(8)); content.addView(filter, spaced())
+        val resultsLabel = label(receipts.size.toString() + " despesas", 12, muted, false).apply { setPadding(0, 0, 0, dp(8)) }
+        content.addView(resultsLabel)
+        val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        content.addView(list)
+        fun render(queryRaw: String, statusRaw: String) {
+            list.removeAllViews()
+            val query = queryRaw.trim().lowercase(Locale.ROOT); val status = statusRaw.lowercase(Locale.ROOT)
             val filtered = receipts.filter { receipt ->
-                val matchesQuery = query.isBlank() ||
-                    receipt.collaborator.lowercase(Locale.ROOT).contains(query) ||
-                    receipt.description.lowercase(Locale.ROOT).contains(query) ||
-                    receipt.expenseDate.lowercase(Locale.ROOT).contains(query)
-                val paymentStatus = database.paymentStatus(receipt.externalId).status.lowercase(Locale.ROOT)
-                val matchesStatus = selectedStatus == "todos os status" || paymentStatus == selectedStatus
-                matchesQuery && matchesStatus
+                val matchesText = query.isBlank() || receipt.collaborator.lowercase(Locale.ROOT).contains(query) ||
+                    receipt.description.lowercase(Locale.ROOT).contains(query) || receipt.expenseDate.contains(query)
+                val current = database.paymentStatus(receipt.externalId).status.lowercase(Locale.ROOT)
+                matchesText && (status == "todas" || current == status)
             }
+            resultsLabel.text = filtered.size.toString() + " despesa(s)"
             if (filtered.isEmpty()) {
                 val empty = card()
-                empty.addView(label(if (receipts.isEmpty()) "Nenhuma despesa cadastrada" else "Nenhuma despesa encontrada", 16, ink, true))
-                empty.addView(label(if (receipts.isEmpty()) "Cadastre sua primeira despesa para começar." else "Tente outra busca ou selecione “Todos os status”.", 13, muted, false).apply { setPadding(0, dp(5), 0, 0) })
-                listContainer.addView(empty, spaced())
-                return
+                empty.addView(label(if (receipts.isEmpty()) "Nenhuma despesa por aqui ainda." else "Nenhum resultado encontrado.", 15, ink, true))
+                empty.addView(label(if (receipts.isEmpty()) "Use “Nova despesa” ou importe um Excel." else "Tente mudar a busca ou o filtro.", 13, muted, false).apply { setPadding(0, dp(5), 0, 0) })
+                list.addView(empty, spaced()); return
             }
-            filtered.forEach { receipt ->
-                val item = card()
-                val payment = database.paymentStatus(receipt.externalId)
-                item.addView(label(receipt.collaborator, 16, ink, true))
-                item.addView(label(money(receipt.amountCents), 22, blue, true).apply { setPadding(0, dp(5), 0, 0) })
-                item.addView(label(receipt.description, 14, ink, false).apply { setPadding(0, dp(4), 0, 0) })
-                item.addView(label("Data: ${receipt.expenseDate}", 12, muted, false).apply { setPadding(0, dp(5), 0, 0) })
-                if (receipt.attachmentPath.isBlank() || !File(receipt.attachmentPath).exists()) {
-                    item.addView(label("Comprovante ausente — pode anexar depois.", 12, red, true).apply {
-                        setPadding(0, dp(6), 0, dp(6))
-                    })
-                    val attach = actionButton("Adicionar foto do comprovante")
-                    attach.setOnClickListener { chooseAttachmentForReceipt(receipt.id) }
-                    item.addView(attach, matchWrap())
-                }
-                val statusColor = when (payment.status.lowercase(Locale.ROOT)) {
-                    "pago" -> green
-                    "parcial" -> Color.rgb(180, 83, 9)
-                    else -> blue
-                }
-                item.addView(label("Status: ${payment.status}", 13, statusColor, true).apply { setPadding(0, dp(6), 0, 0) })
-                item.addView(label("Pago: ${money(payment.paidCents)}  ·  Saldo: ${money(payment.balanceCents)}", 12, muted, false).apply { setPadding(0, dp(3), 0, dp(12)) })
-                if (payment.paidCents == 0L) {
-                    val edit = actionButton("Editar despesa")
-                    edit.background = GradientDrawable().apply {
-                        setColor(Color.rgb(46, 25, 78))
-                        cornerRadius = dp(10).toFloat()
-                        setStroke(dp(1), Color.rgb(191, 219, 254))
-                    }
-                    edit.setTextColor(blue)
-                    edit.setOnClickListener { openReceiptEditDialog(receipt) }
-                    item.addView(edit, matchWrap())
-                } else {
-                    item.addView(label("Edição bloqueada após pagamentos para proteger o histórico.", 12, muted, false).apply {
-                        setPadding(0, 0, 0, dp(8))
-                    })
-                }
-                val delete = actionButton("Excluir despesa")
-                delete.background = GradientDrawable().apply {
-                    setColor(Color.rgb(254, 242, 242))
-                    cornerRadius = dp(10).toFloat()
-                    setStroke(dp(1), Color.rgb(254, 202, 202))
-                }
-                delete.setTextColor(red)
-                delete.setOnClickListener {
-                    AlertDialog.Builder(this)
-                        .setTitle("Excluir esta despesa?")
-                        .setMessage("“${receipt.description}” — ${money(receipt.amountCents)}\n\nEssa ação remove o registro e o comprovante deste celular. Se já enviou a planilha ao Gestor, apagar aqui não remove a cópia do computador. Despesas com pagamentos vinculados não podem ser excluídas.")
-                        .setNegativeButton("Manter", null)
-                        .setPositiveButton("Excluir") { _, _ ->
-                            try {
-                                database.deleteReceipt(receipt.id)
-                                toast("Despesa excluída.")
-                                showScreen("receipts")
-                            } catch (error: Exception) {
-                                toast(error.message ?: "Não foi possível excluir esta despesa.")
-                            }
-                        }
-                        .show()
-                }
-                item.addView(delete, matchWrap())
-                listContainer.addView(item, spaced())
-            }
+            filtered.forEach { receipt -> list.addView(expenseSummaryRow(receipt) { showReceiptActions(receipt) }, spaced()) }
         }
         search.addTextChangedListener(object : android.text.TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
-            override fun afterTextChanged(s: android.text.Editable?) {
-                renderItems(s?.toString().orEmpty(), statusFilter.selectedItem?.toString().orEmpty())
-            }
+            override fun afterTextChanged(s: android.text.Editable?) { render(s?.toString().orEmpty(), filter.selectedItem?.toString().orEmpty()) }
         })
-        statusFilter.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+        filter.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
             override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
-            override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: android.view.View?, position: Int, id: Long) {
-                renderItems(search.text.toString(), statusOptions[position])
-            }
+            override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: android.view.View?, position: Int, id: Long) { render(search.text.toString(), options[position]) }
         }
-        renderItems("", statusOptions.first())
+        render("", options.first())
+    }
+
+    private fun showReceiptActions(receipt: LocalReceipt) {
+        val payment = database.paymentStatus(receipt.externalId)
+        val hasProof = database.receiptAttachments(receipt.id).any { File(it).exists() }
+        val options = mutableListOf<String>(); val actions = mutableListOf<String>()
+        options += if (hasProof) "Ver comprovante" else "Adicionar comprovante"
+        actions += if (hasProof) "view" else "attach"
+        if (payment.paidCents == 0L) { options += "Editar despesa"; actions += "edit" }
+        options += "Excluir despesa"; actions += "delete"
+        val proofText = if (hasProof) "Comprovante anexado" else "Comprovante ainda não anexado"
+        AlertDialog.Builder(this)
+            .setTitle(receipt.collaborator + " • " + money(receipt.amountCents))
+            .setMessage(receipt.description + "\nData: " + receipt.expenseDate + "\nStatus: " + payment.status +
+                "\nPago: " + money(payment.paidCents) + " • Saldo: " + money(payment.balanceCents) + "\n" + proofText)
+            .setItems(options.toTypedArray()) { _, which ->
+                when (actions[which]) {
+                    "view" -> openReceiptImage(receipt)
+                    "attach" -> chooseAttachmentForReceipt(receipt.id)
+                    "edit" -> openReceiptEditDialog(receipt)
+                    "delete" -> confirmDeleteReceipt(receipt)
+                }
+            }.setNegativeButton("Fechar", null).show()
+    }
+
+    private fun openReceiptImage(receipt: LocalReceipt) {
+        try {
+            val photos = database.receiptAttachments(receipt.id).filter { File(it).exists() }
+            if (photos.isEmpty()) error("Nenhuma foto de comprovante foi encontrada.")
+            fun open(path: String) {
+                val file = File(path)
+                val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
+                startActivity(Intent(Intent.ACTION_VIEW).apply { setDataAndType(uri, "image/*"); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION) })
+            }
+            if (photos.size == 1) open(photos.first())
+            else AlertDialog.Builder(this).setTitle("Escolha uma foto (" + photos.size + ")")
+                .setItems(photos.mapIndexed { i, _ -> "Foto " + (i + 1) }.toTypedArray()) { _, which -> open(photos[which]) }
+                .setNegativeButton("Fechar", null).show()
+        } catch (error: Exception) { toast(error.message ?: "Não foi possível abrir o comprovante.") }
+    }
+
+    private fun confirmDeleteReceipt(receipt: LocalReceipt) {
+        AlertDialog.Builder(this).setTitle("Excluir despesa?")
+            .setMessage(receipt.description + " — " + money(receipt.amountCents) + "\n\nSe houver pagamentos vinculados, a exclusão será bloqueada para proteger o histórico.")
+            .setNegativeButton("Manter", null)
+            .setPositiveButton("Excluir") { _, _ ->
+                try { database.deleteReceipt(receipt.id); toast("Despesa excluída."); showScreen("receipts") }
+                catch (error: Exception) { toast(error.message ?: "Não foi possível excluir esta despesa.") }
+            }.show()
+    }
+
+    private fun fieldBackground() = GradientDrawable().apply {
+        setColor(Color.rgb(17, 18, 30)); cornerRadius = dp(10).toFloat(); setStroke(dp(1), Color.rgb(49, 47, 69))
     }
 
     private fun card(): LinearLayout = LinearLayout(this).apply {
