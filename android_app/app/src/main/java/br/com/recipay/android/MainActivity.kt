@@ -249,8 +249,8 @@ class MainActivity : Activity() {
         form.addView(descriptionInput, fieldParams())
         form.addView(fieldLabel("Data da despesa"))
         form.addView(dateInput, fieldParams())
-        photoButton = actionButton("Tirar foto ou anexar comprovante")
-        photoButton.setOnClickListener { showPhotoOptions() }
+        photoButton = actionButton("Definir quantidade de fotos")
+        photoButton.setOnClickListener { askPhotoCount() }
         form.addView(photoButton, fieldParams())
         statusLabel = label("Obrigatório para salvar.", 13, muted, false).apply { setPadding(0, dp(3), 0, dp(10)) }
         form.addView(statusLabel)
@@ -440,14 +440,18 @@ class MainActivity : Activity() {
         val amountText = amountInput.text.toString().trim()
         val description = descriptionInput.text.toString().trim()
         val date = dateInput.text.toString().trim()
-        val photoUri = selectedPhotoUri
+        val photoUris = selectedPhotoUris.toList()
 
         if (selectedCollaborator == null || amountText.isBlank() || description.isBlank() || date.isBlank()) {
             toast(if (selectedCollaborator == null) "Cadastre um colaborador antes de registrar a despesa." else "Preencha todos os campos.")
             return
         }
-        if (photoUri == null) {
-            toast("Anexe o comprovante antes de salvar.")
+        if (expectedPhotoCount < 1) {
+            toast("Informe antes quantas fotos terá esta despesa.")
+            return
+        }
+        if (photoUris.size != expectedPhotoCount) {
+            toast("Você definiu " + expectedPhotoCount + " foto(s), mas selecionou " + photoUris.size + ". Selecione exatamente essa quantidade.")
             return
         }
         // Aceita formatos brasileiros (250,99 / 1.250,99) e ponto decimal (250.99).
@@ -473,18 +477,23 @@ class MainActivity : Activity() {
 
         try {
             val attachmentDir = File(filesDir, "comprovantes").apply { mkdirs() }
-            val attachment = File(attachmentDir, "comprovante_${System.currentTimeMillis()}.img")
-            contentResolver.openInputStream(photoUri).use { input ->
-                if (input == null) error("Não foi possível abrir o comprovante.")
-                attachment.outputStream().use { output -> input.copyTo(output) }
+            val attachments = photoUris.mapIndexed { index, uri ->
+                val attachment = File(attachmentDir, "comprovante_" + System.currentTimeMillis() + "_" + index + ".img")
+                contentResolver.openInputStream(uri).use { input ->
+                    if (input == null) error("Não foi possível abrir a foto " + (index + 1) + ".")
+                    attachment.outputStream().use { output -> input.copyTo(output) }
+                }
+                attachment
             }
-            database.addReceipt(selectedCollaborator.id, selectedCollaborator.name, amountCents, description, date, attachment.absolutePath)
+            val receiptId = database.addReceipt(selectedCollaborator.id, selectedCollaborator.name, amountCents, description, date, attachments.first().absolutePath)
+            database.addReceiptAttachments(receiptId, attachments.map { it.absolutePath })
             amountInput.text.clear()
             descriptionInput.text.clear()
             dateInput.setText(java.time.LocalDate.now().toString())
-            selectedPhotoUri = null
-            photoButton.text = "Tirar foto ou anexar comprovante"
-            statusLabel.text = "Comprovante obrigatório."
+            selectedPhotoUris.clear()
+            expectedPhotoCount = 0
+            photoButton.text = "Definir quantidade de fotos"
+            statusLabel.text = "Informe a quantidade de fotos antes de salvar."
             statusLabel.setTextColor(muted)
             toast("Despesa salva neste celular.")
             showScreen("receipts")
