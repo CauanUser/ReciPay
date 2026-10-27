@@ -294,6 +294,18 @@ class ReceiptDatabase(context: Context) : SQLiteOpenHelper(context, "recipay_sup
         require(changed == 1) { "Não foi possível atualizar a despesa." }
     }
 
+    /** Permite corrigir descrição e data mesmo quando já existem pagamentos, sem alterar valores financeiros. */
+    fun updateReceiptDetails(id: Long, description: String, expenseDate: String) {
+        require(description.isNotBlank()) { "Preencha a descrição." }
+        val receipt = listReceipts().firstOrNull { it.id == id } ?: error("Despesa não encontrada.")
+        val values = ContentValues().apply {
+            put("description", description.trim())
+            put("expense_date", expenseDate)
+        }
+        val changed = writableDatabase.update("receipts", values, "id = ?", arrayOf(receipt.id.toString()))
+        require(changed == 1) { "Não foi possível atualizar a despesa." }
+    }
+
     /** Remove somente despesas sem pagamentos vinculados. O histórico financeiro é preservado. */
     fun deleteReceipt(id: Long) {
         val receipt = listReceipts().firstOrNull { it.id == id } ?: error("Despesa não encontrada.")
