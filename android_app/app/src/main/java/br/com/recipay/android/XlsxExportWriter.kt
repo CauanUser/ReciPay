@@ -73,8 +73,13 @@ object XlsxExportWriter {
             val c = collaboratorsById[r.collaboratorId]!!
             receiptRows += listOf(reference(r.externalId), r.expenseDate, c.name, c.team, r.description, r.amountCents / 100.0, "OUTROS")
         }
+        receiptRows += listOf(null, null, null, null, null, null, null)
+        receiptRows += listOf(null, null, null, null, "TOTAL", total / 100.0, null)
+        receiptRows += listOf(null, null, null, null, null, null, null)
+        val sentDate = SimpleDateFormat("dd/MM/yyyy", Locale("pt", "BR")).format(Date())
+        receiptRows += listOf("Enviado pelo ReciPay em " + sentDate + ". Importe esta planilha no Union; não altere os valores.", null, null, null, null, null, null)
         val collaboratorRows = mutableListOf<List<Any?>>()
-        collaboratorRows += listOf("Nome", "Equipe", "Função", "Tipo da chave", "Chave Pix", "Titular")
+        collaboratorRows += listOf("Nome", "Equipe", "Tipo da chave", "Chave Pix", "Titular")
         selectedCollaborators.forEach { c ->
             val label = when (c.pixType) {
                 "EMAIL" -> "E-mail"
@@ -82,13 +87,13 @@ object XlsxExportWriter {
                 "ALEATORIA" -> "Chave aleatória"
                 else -> c.pixType
             }
-            collaboratorRows += listOf(c.name, c.team, c.role, label, c.pixKey, c.pixHolder)
+            collaboratorRows += listOf(c.name, c.team, label, c.pixKey, c.pixHolder)
         }
         val proofRows = mutableListOf<List<Any?>>()
         proofRows += listOf("Ref", "Colaborador", "Valor (R$)", "Comprovante")
         sorted.forEach { r ->
             val c = collaboratorsById[r.collaboratorId]!!
-            proofRows += listOf(reference(r.externalId), c.name, r.amountCents / 100.0, "Comprovante incluído na planilha")
+            proofRows += listOf(reference(r.externalId), c.name, r.amountCents / 100.0, null)
         }
         val sheets = listOf(
             Sheet("Recibos", receiptRows),
