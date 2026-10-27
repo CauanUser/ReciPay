@@ -44,6 +44,8 @@ class MainActivity : Activity() {
     private var cameraCaptureMode = false
     private var pendingCameraUri: Uri? = null
     private var pendingAttachmentReceiptId: Long? = null
+    private var newExpensePdfUri: Uri? = null
+    private var newExpensePdfPhotoUris: List<Uri> = emptyList()
     private var currentScreen: String = "home"
 
     private val blue = Color.rgb(139, 92, 246)
@@ -278,7 +280,10 @@ class MainActivity : Activity() {
         photoButton = actionButton("Definir quantidade de fotos")
         photoButton.setOnClickListener { askPhotoCount() }
         form.addView(photoButton, fieldParams())
-        statusLabel = label("Obrigatório para salvar.", 13, muted, false).apply { setPadding(0, dp(3), 0, dp(10)) }
+        val pdfButton = actionButton("Anexar PDF ou juntar fotos em PDF")
+        pdfButton.setOnClickListener { chooseNewExpenseProof() }
+        form.addView(pdfButton, fieldParams())
+        statusLabel = label("Anexe fotos ou um PDF como comprovante antes de salvar.", 13, muted, false).apply { setPadding(0, dp(3), 0, dp(10)) }
         form.addView(statusLabel)
         val save = actionButton("Salvar despesa")
         save.setOnClickListener { saveReceipt() }
@@ -385,13 +390,6 @@ class MainActivity : Activity() {
         importCard.addView(import, matchWrap())
         content.addView(importCard, spaced())
 
-        val pdfCard = card()
-        pdfCard.addView(label("3. Comprovantes em PDF", 17, ink, true))
-        pdfCard.addView(label("Junte várias fotos em um único PDF organizado ou selecione um PDF que já está pronto para compartilhar.", 13, muted, false).apply { setPadding(0, dp(5), 0, dp(12)) })
-        pdfCard.addView(actionButton("Juntar fotos em PDF").apply { setOnClickListener { choosePhotosForPdf() } }, matchWrap())
-        pdfCard.addView(actionButton("Enviar PDF pronto").apply { setOnClickListener { chooseReadyPdf() } }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
-        content.addView(pdfCard, spaced())
-
         val note = card()
         note.addView(label("Dica", 14, blue, true))
         note.addView(label("Envie ao Gestor somente a planilha exportada pelo ReciPay. Depois, importe o arquivo de retorno que ele gerar.", 13, muted, false).apply { setPadding(0, dp(4), 0, 0) })
@@ -480,11 +478,12 @@ class MainActivity : Activity() {
             toast(if (selectedCollaborator == null) "Cadastre um colaborador antes de registrar a despesa." else "Preencha todos os campos.")
             return
         }
-        if (expectedPhotoCount < 1) {
-            toast("Informe antes quantas fotos terá esta despesa.")
+        val hasPdfProof = newExpensePdfUri != null || newExpensePdfPhotoUris.isNotEmpty()
+        if (!hasPdfProof && expectedPhotoCount < 1) {
+            toast("Anexe fotos ou um PDF como comprovante.")
             return
         }
-        if (photoUris.size != expectedPhotoCount) {
+        if (!hasPdfProof && photoUris.size != expectedPhotoCount) {
             toast("Você definiu " + expectedPhotoCount + " foto(s), mas selecionou " + photoUris.size + ". Selecione exatamente essa quantidade.")
             return
         }
@@ -518,16 +517,30 @@ class MainActivity : Activity() {
                     attachment.outputStream().use { output -> input.copyTo(output) }
                 }
                 attachment
+            }.toMutableList()
+            if (newExpensePdfUri != null) {
+                val pdf = File(attachmentDir, "comprovante_" + System.currentTimeMillis() + ".pdf")
+                contentResolver.openInputStream(newExpensePdfUri!!).use { input ->
+                    if (input == null) error("Não foi possível abrir o PDF selecionado.")
+                    pdf.outputStream().use { output -> input.copyTo(output) }
+                }
+                attachments.add(pdf)
+            } else if (newExpensePdfPhotoUris.isNotEmpty()) {
+                val pdf = createPhotoPdfFile(newExpensePdfPhotoUris)
+                attachments.add(pdf)
             }
+            if (attachments.isEmpty()) error("Anexe um comprovante à despesa.")
             val receiptId = database.addReceipt(selectedCollaborator.id, selectedCollaborator.name, amountCents, description, date, attachments.first().absolutePath)
             database.addReceiptAttachments(receiptId, attachments.map { it.absolutePath })
             amountInput.text.clear()
             descriptionInput.text.clear()
             dateInput.setText(java.time.LocalDate.now().toString())
             selectedPhotoUris.clear()
+            newExpensePdfUri = null
+            newExpensePdfPhotoUris = emptyList()
             expectedPhotoCount = 0
             photoButton.text = "Definir quantidade de fotos"
-            statusLabel.text = "Informe a quantidade de fotos antes de salvar."
+            statusLabel.text = "Anexe fotos ou um PDF como comprovante antes de salvar."
             statusLabel.setTextColor(muted)
             toast("Despesa salva neste celular.")
             showScreen("receipts")
@@ -566,7 +579,10 @@ class MainActivity : Activity() {
         form.addView(description, fieldParams())
         form.addView(fieldLabel("Data da despesa"))
         form.addView(date, fieldParams())
-        form.addView(label("O comprovante atual será mantido. Despesas com pagamentos vinculados não podem ser editadas.", 12, muted, false).apply {
+        form.addView(actionButton("Adicionar/substituir comprovante (foto ou PDF)").apply {
+            setOnClickListener { chooseAttachmentForReceipt(receipt.id) }
+        }, fieldParams())
+        form.addView(label("O comprovante atual será mantido se você não anexar outro. Despesas com pagamentos vinculados não podem ser editadas.", 12, muted, false).apply {
             setPadding(0, dp(8), 0, 0)
         })
         AlertDialog.Builder(this)
@@ -662,6 +678,44 @@ class MainActivity : Activity() {
             pendingCameraUri = null
             toast(error.message ?: "Não foi possível abrir a câmera.")
         }
+    }
+
+    private fun chooseNewExpenseProof() {
+        AlertDialog.Builder(this).setTitle("Comprovante da nova despesa")
+            .setItems(arrayOf("Selecionar PDF pronto", "Juntar várias fotos em PDF")) { _, which ->
+                if (which == 0) openDocumentPicker("application/pdf", REQUEST_NEW_EXPENSE_PDF, false)
+                else openDocumentPicker("image/*", REQUEST_NEW_EXPENSE_PDF_PHOTOS, true)
+            }.setNegativeButton("Cancelar", null).show()
+    }
+
+    private fun createPhotoPdfFile(uris: List<Uri>): File {
+        if (uris.isEmpty()) error("Selecione pelo menos uma foto.")
+        val document = PdfDocument()
+        try {
+            uris.forEachIndexed { index, uri ->
+                val bitmap = contentResolver.openInputStream(uri).use { input ->
+                    if (input == null) error("Não foi possível abrir uma foto.")
+                    BitmapFactory.decodeStream(input) ?: error("Imagem inválida.")
+                }
+                try {
+                    val page = document.startPage(PdfDocument.PageInfo.Builder(595, 842, index + 1).create())
+                    page.canvas.drawColor(Color.WHITE)
+                    val margin = 24f; val maxW = 547f; val maxH = 770f
+                    val scale = minOf(maxW / bitmap.width, maxH / bitmap.height)
+                    val w = bitmap.width * scale; val h = bitmap.height * scale
+                    val left = (595f - w) / 2f; val top = 48f + (maxH - h) / 2f
+                    page.canvas.drawText("Comprovante " + (index + 1) + "/" + uris.size, margin, 24f,
+                        Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.DKGRAY; textSize = 12f })
+                    page.canvas.drawBitmap(bitmap, null, RectF(left, top, left + w, top + h),
+                        Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG))
+                    document.finishPage(page)
+                } finally { bitmap.recycle() }
+            }
+            val dir = File(filesDir, "comprovantes").apply { mkdirs() }
+            val target = File(dir, "comprovante_nova_despesa_" + System.currentTimeMillis() + ".pdf")
+            target.outputStream().use { document.writeTo(it) }
+            return target
+        } finally { document.close() }
     }
 
     private fun choosePhotosForPdf() {
@@ -842,6 +896,24 @@ class MainActivity : Activity() {
                     .setNegativeButton("Parar") { _, _ -> updatePhotoSelectionStatus() }
                     .setPositiveButton("Próxima foto") { _, _ -> takeReceiptPhoto() }.show()
             } else updatePhotoSelectionStatus()
+            return
+        }
+        if (requestCode == REQUEST_NEW_EXPENSE_PDF || requestCode == REQUEST_NEW_EXPENSE_PDF_PHOTOS) {
+            try {
+                if (requestCode == REQUEST_NEW_EXPENSE_PDF) {
+                    newExpensePdfUri = data?.data ?: error("Nenhum PDF foi selecionado.")
+                    newExpensePdfPhotoUris = emptyList()
+                    toast("PDF selecionado. Ele será anexado ao salvar a despesa.")
+                } else {
+                    val uris = mutableListOf<Uri>()
+                    data?.clipData?.let { clip -> for (i in 0 until clip.itemCount) uris += clip.getItemAt(i).uri }
+                    if (uris.isEmpty()) data?.data?.let { uris += it }
+                    if (uris.isEmpty()) error("Selecione pelo menos uma foto.")
+                    newExpensePdfPhotoUris = uris
+                    newExpensePdfUri = null
+                    toast(uris.size.toString() + " foto(s) selecionada(s). Um PDF será criado ao salvar a despesa.")
+                }
+            } catch (error: Exception) { toast(error.message ?: "Não foi possível selecionar o comprovante.") }
             return
         }
         if (requestCode == REQUEST_PDF_PHOTOS) {
@@ -1246,6 +1318,8 @@ class MainActivity : Activity() {
         private const val REQUEST_IMPORT_COLLABORATORS = 1051
         private const val REQUEST_ATTACH_PDF_PHOTOS = 1052
         private const val REQUEST_ATTACH_READY_PDF = 1053
+        private const val REQUEST_NEW_EXPENSE_PDF = 1054
+        private const val REQUEST_NEW_EXPENSE_PDF_PHOTOS = 1055
         private const val SUPERVISOR_ID = "00000000-0000-4000-8000-000000000001"
     }
 }
