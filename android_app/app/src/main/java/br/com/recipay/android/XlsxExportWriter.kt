@@ -71,8 +71,12 @@ object XlsxExportWriter {
         receiptRows += listOf("Ref", "Data", "Colaborador", "Equipe", "Descrição", "Valor (R$)", "Categoria")
         sorted.forEach { r ->
             val c = collaboratorsById[r.collaboratorId]!!
-            receiptRows += listOf(reference(r.externalId), r.expenseDate, c.name, c.team, r.description, r.amountCents / 100.0, "OUTROS")
+            receiptRows += listOf(reference(r.externalId), r.expenseDate, c.name, c.team, r.description, r.amountCents / 100.0, "Outros")
         }
+        receiptRows += emptyList<Any?>()
+        receiptRows += listOf(null, null, null, null, "TOTAL", total / 100.0, null)
+        receiptRows += emptyList<Any?>()
+        receiptRows += listOf("Enviado por Supervisor Android em " + java.time.LocalDate.now().format(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy")) + ". Importe esta planilha no Union; não altere os valores.")
         val collaboratorRows = mutableListOf<List<Any?>>()
         collaboratorRows += listOf("Nome", "Equipe", "Função", "Tipo da chave", "Chave Pix", "Titular")
         selectedCollaborators.forEach { c ->
@@ -91,9 +95,9 @@ object XlsxExportWriter {
             proofRows += listOf(reference(r.externalId), c.name, r.amountCents / 100.0, "Comprovante incluído na planilha")
         }
         val sheets = listOf(
-            Sheet("Recibos", receiptRows),
-            Sheet("Colaboradores", collaboratorRows),
-            Sheet("Comprovantes", proofRows),
+            Sheet("Recibos", receiptRows, widths = listOf(12, 12, 30, 16, 40, 14, 26)),
+            Sheet("Colaboradores", collaboratorRows, widths = listOf(30, 16, 16, 36, 30)),
+            Sheet("Comprovantes", proofRows, widths = listOf(12, 30, 14, 40)),
             Sheet("_recipay", hiddenRows, true)
         )
         val entries = linkedMapOf<String, String>()
@@ -101,7 +105,8 @@ object XlsxExportWriter {
         entries["_rels/.rels"] = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>"""
         entries["xl/workbook.xml"] = workbookXml(sheets)
         entries["xl/_rels/workbook.xml.rels"] = workbookRels(sheets.size)
-        sheets.forEachIndexed { index, sheet -> entries["xl/worksheets/sheet${index + 1}.xml"] = sheetXml(sheet.rows) }
+        entries["xl/styles.xml"] = stylesXml()
+        sheets.forEachIndexed { index, sheet -> entries["xl/worksheets/sheet${index + 1}.xml"] = sheetXml(sheet) }
         ZipOutputStream(output).use { zip ->
             entries.forEach { (path, xml) ->
                 zip.putNextEntry(ZipEntry(path))
@@ -111,7 +116,7 @@ object XlsxExportWriter {
         }
     }
 
-    private data class Sheet(val name: String, val rows: List<List<Any?>>, val veryHidden: Boolean = false)
+    private data class Sheet(val name: String, val rows: List<List<Any?>>, val veryHidden: Boolean = false, val widths: List<Int> = emptyList())
 
     private fun addChunks(rows: MutableList<List<Any?>>, key: String, value: String) {
         value.chunked(32000).forEachIndexed { index, part -> rows += listOf(key, index, part) }
@@ -119,7 +124,7 @@ object XlsxExportWriter {
     }
 
     private fun contentTypes(count: Int) = buildString {
-        append("""<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>""")
+        append("""<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>""")
         for (i in 1..count) append("""<Override PartName="/xl/worksheets/sheet$i.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>""")
         append("</Types>")
     }
@@ -137,7 +142,13 @@ object XlsxExportWriter {
     private fun workbookRels(count: Int) = buildString {
         append("""<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">""")
         for (i in 1..count) append("""<Relationship Id="rId$i" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet$i.xml"/>""")
+        append("""<Relationship Id="rId${count + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>""")
         append("</Relationships>")
+    }
+
+    private fun stylesXml() = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<numFmts count="2"><numFmt numFmtId="164" formatCode="DD/MM/YYYY"/><numFmt numFmtId="165" formatCode="&quot;R        append("</Relationships>")
     }
 
     private fun sheetXml(rows: List<List<Any?>>) = buildString {
@@ -151,6 +162,52 @@ object XlsxExportWriter {
                     when (value) {
                         is Number -> append("<c r=\"$ref\"><v>$value</v></c>")
                         else -> append("<c r=\"$ref\" t=\"inlineStr\"><is><t xml:space=\"preserve\">${escape(value.toString())}</t></is></c>")
+                    }
+                }
+            }
+            append("</row>")
+        }
+        append("</sheetData></worksheet>")
+    }quot; #,##0.00"/></numFmts>
+<fonts count="3"><font><sz val="11"/><name val="Calibri"/></font><font><b/><color rgb="FFFFFFFF"/><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts>
+<fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF1E5AA8"/><bgColor indexed="64"/></patternFill></fill></fills>
+<borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="thin"><color rgb="FFD9E2F3"/></left><right style="thin"><color rgb="FFD9E2F3"/></right><top style="thin"><color rgb="FFD9E2F3"/></top><bottom style="thin"><color rgb="FFD9E2F3"/></bottom><diagonal/></border></borders>
+<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
+<cellXfs count="6"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="1" applyFont="1" applyFill="1" applyBorder="1"/><xf numFmtId="164" fontId="0" fillId="0" borderId="1" applyNumberFormat="1" applyBorder="1"/><xf numFmtId="165" fontId="0" fillId="0" borderId="1" applyNumberFormat="1" applyBorder="1"/><xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1"/><xf numFmtId="165" fontId="2" fillId="0" borderId="0" applyNumberFormat="1" applyFont="1"/></cellXfs>
+<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>"""
+
+    private fun sheetXml(sheet: Sheet) = buildString {
+        val rows = sheet.rows
+        val lastCol = maxOf(1, rows.maxOfOrNull { it.size } ?: 1)
+        append("""<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><dimension ref="A1:${columnName(lastCol)}${rows.size}"/><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>""")
+        if (sheet.widths.isNotEmpty()) {
+            append("<cols>")
+            sheet.widths.forEachIndexed { i, width -> append("<col min=\"${i + 1}\" max=\"${i + 1}\" width=\"$width\" customWidth=\"1\"/>") }
+            append("</cols>")
+        }
+        append("<sheetData>")
+        rows.forEachIndexed { rowIndex, row ->
+            val rn = rowIndex + 1
+            append("<row r=\"$rn\">")
+            row.forEachIndexed { colIndex, value ->
+                if (value != null) {
+                    val ref = columnName(colIndex + 1) + rn
+                    val style = when {
+                        rowIndex == 0 && sheet.name != "_recipay" -> 1
+                        sheet.name == "Recibos" && rowIndex in 1..(rows.size - 5) && colIndex == 1 -> 2
+                        sheet.name == "Recibos" && rowIndex in 1 until (rows.size - 5) && colIndex == 5 -> 3
+                        sheet.name == "Recibos" && rowIndex == rows.size - 3 && colIndex == 4 -> 4
+                        sheet.name == "Recibos" && rowIndex == rows.size - 3 && colIndex == 5 -> 5
+                        sheet.name == "Comprovantes" && rowIndex > 0 && colIndex == 2 -> 3
+                        else -> 0
+                    }
+                    when {
+                        sheet.name == "Recibos" && rowIndex in 1 until (rows.size - 5) && colIndex == 1 && value is String -> {
+                            val days = java.time.temporal.ChronoUnit.DAYS.between(java.time.LocalDate.of(1899, 12, 30), java.time.LocalDate.parse(value))
+                            append("<c r=\"$ref\" s=\"$style\"><v>$days</v></c>")
+                        }
+                        value is Number -> append("<c r=\"$ref\" s=\"$style\"><v>$value</v></c>")
+                        else -> append("<c r=\"$ref\" s=\"$style\" t=\"inlineStr\"><is><t xml:space=\"preserve\">${escape(value.toString())}</t></is></c>")
                     }
                 }
             }
