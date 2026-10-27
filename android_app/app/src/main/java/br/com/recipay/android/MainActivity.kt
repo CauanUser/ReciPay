@@ -702,23 +702,26 @@ class MainActivity : Activity() {
         if (requestCode == REQUEST_ATTACH_RECEIPT) {
             val receiptId = pendingAttachmentReceiptId
             pendingAttachmentReceiptId = null
-            if (receiptId == null) {
-                toast("Não foi possível identificar a despesa.")
-                return
-            }
+            if (receiptId == null) { toast("Não foi possível identificar a despesa."); return }
             try {
+                val uris = mutableListOf<Uri>()
+                val clip = data?.clipData
+                if (clip != null) for (i in 0 until clip.itemCount) uris += clip.getItemAt(i).uri
+                else data?.data?.let { uris += it }
+                if (uris.isEmpty()) error("Selecione pelo menos uma foto.")
                 val attachmentDir = File(filesDir, "comprovantes").apply { mkdirs() }
-                val attachment = File(attachmentDir, "comprovante_importado_${receiptId}_${System.currentTimeMillis()}.img")
-                contentResolver.openInputStream(data.data!!).use { input ->
-                    if (input == null) error("Não foi possível abrir a imagem.")
-                    attachment.outputStream().use { output -> input.copyTo(output) }
+                val attachments = uris.mapIndexed { index, uri ->
+                    val attachment = File(attachmentDir, "comprovante_importado_" + receiptId + "_" + System.currentTimeMillis() + "_" + index + ".img")
+                    contentResolver.openInputStream(uri).use { input ->
+                        if (input == null) error("Não foi possível abrir uma das imagens.")
+                        attachment.outputStream().use { output -> input.copyTo(output) }
+                    }
+                    attachment
                 }
-                database.setReceiptAttachment(receiptId, attachment.absolutePath)
-                toast("Comprovante anexado à despesa.")
+                database.addReceiptAttachments(receiptId, attachments.map { it.absolutePath })
+                toast(attachments.size.toString() + " foto(s) anexada(s) à despesa.")
                 showScreen("receipts")
-            } catch (error: Exception) {
-                toast(error.message ?: "Não foi possível anexar o comprovante.")
-            }
+            } catch (error: Exception) { toast(error.message ?: "Não foi possível anexar as fotos.") }
             return
         }
         if (requestCode == REQUEST_IMPORT_EXPENSES) {
