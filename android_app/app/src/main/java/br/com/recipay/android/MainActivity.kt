@@ -652,6 +652,7 @@ class MainActivity : Activity() {
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
             type = "image/*"
+            putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
         }
         startActivityForResult(intent, REQUEST_ATTACH_RECEIPT)
     }
