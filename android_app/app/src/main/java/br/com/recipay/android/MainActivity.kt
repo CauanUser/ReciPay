@@ -50,6 +50,7 @@ class MainActivity : Activity() {
     private var newExpensePdfPhotoUris: List<Uri> = emptyList()
     private var currentScreen: String = "home"
     private var selectedReceiptId: Long? = null
+    private var pendingExportFile: File? = null
 
     private val blue = Color.rgb(139, 92, 246)
     private val ink = Color.rgb(248, 250, 252)
@@ -904,17 +905,33 @@ class MainActivity : Activity() {
     }
 
     private fun exportReceipts() {
-        if (database.listReceipts().isEmpty()) {
+        val receipts = database.listReceipts()
+        if (receipts.isEmpty()) {
             toast("Cadastre pelo menos uma despesa antes de exportar.")
             return
         }
-        val filename = "recipay_supervisor_${java.time.LocalDate.now()}.xlsx"
-        val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
-            addCategory(Intent.CATEGORY_OPENABLE)
-            type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            putExtra(Intent.EXTRA_TITLE, filename)
+        // Generate and validate BEFORE opening Android's save dialog, so a failed
+        // export cannot leave an empty .xlsx placeholder in Downloads or sharing apps.
+        val temp = File(cacheDir, "recipay_export_${System.currentTimeMillis()}.xlsx")
+        try {
+            temp.outputStream().use { output ->
+                XlsxExportWriter.write(output, receipts, database.listCollaborators())
+            }
+            validateGeneratedXlsx(temp)
+            pendingExportFile?.delete()
+            pendingExportFile = temp
+            val filename = "recipay_supervisor_${java.time.LocalDate.now()}.xlsx"
+            val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                putExtra(Intent.EXTRA_TITLE, filename)
+            }
+            startActivityForResult(intent, REQUEST_EXPORT)
+        } catch (error: Exception) {
+            temp.delete()
+            pendingExportFile = null
+            toast("Não foi possível gerar a planilha: ${error.message ?: "erro desconhecido"}.")
         }
-        startActivityForResult(intent, REQUEST_EXPORT)
     }
 
     @Deprecated("Kept compatible with the minimal native prototype.")
@@ -922,6 +939,10 @@ class MainActivity : Activity() {
         super.onActivityResult(requestCode, resultCode, data)
         if (resultCode != Activity.RESULT_OK) {
             if (requestCode == REQUEST_CAMERA) pendingCameraUri = null
+            if (requestCode == REQUEST_EXPORT) {
+                pendingExportFile?.delete()
+                pendingExportFile = null
+            }
             return
         }
         if (requestCode == REQUEST_CAMERA) {
@@ -1101,22 +1122,23 @@ class MainActivity : Activity() {
             return
         }
         if (requestCode == REQUEST_EXPORT) {
-            var temporaryXlsx: File? = null
+            val temporaryXlsx = pendingExportFile
+            pendingExportFile = null
             try {
-                // Build and validate locally first: never leave a half-written .xlsx at the destination.
-                temporaryXlsx = File(cacheDir, "recipay_export_${System.currentTimeMillis()}.xlsx")
-                temporaryXlsx.outputStream().use { output ->
-                    XlsxExportWriter.write(output, database.listReceipts(), database.listCollaborators())
+                if (data?.data == null) error("Nenhum local de destino foi selecionado.")
+                if (temporaryXlsx == null || !temporaryXlsx.isFile || temporaryXlsx.length() == 0L) {
+                    error("A planilha temporária não existe ou está vazia. Tente exportar novamente.")
                 }
-                validateGeneratedXlsx(temporaryXlsx!!)
-                contentResolver.openOutputStream(data.data!!, "wt").use { output ->
-                    if (output == null) error("Não foi possível gravar a planilha no destino escolhido.")
-                    temporaryXlsx!!.inputStream().use { input -> input.copyTo(output) }
-                    output.flush()
+                val expectedSize = temporaryXlsx.length()
+                val copiedBytes = contentResolver.openOutputStream(data.data!!, "wt")?.use { output ->
+                    temporaryXlsx.inputStream().use { input -> input.copyTo(output) }.also { output.flush() }
+                } ?: error("O Android não abriu o arquivo de destino para gravação.")
+                require(copiedBytes == expectedSize && copiedBytes > 0L) {
+                    "A planilha foi gravada incompleta ($copiedBytes de $expectedSize bytes). Escolha outro local e tente novamente."
                 }
-                toast("Planilha criada e validada. Envie o arquivo ao Gestor para importar no Recipay.")
+                toast("Planilha exportada com sucesso (${copiedBytes / 1024} KB). Agora você pode anexá-la e enviar ao Gestor.")
             } catch (error: Exception) {
-                toast("Falha ao validar a planilha: ${error.message ?: "arquivo inválido"}. Tente exportar novamente.")
+                toast("Falha ao salvar a planilha: ${error.message ?: "erro desconhecido"}. Tente em outro local.")
             } finally {
                 temporaryXlsx?.delete()
             }
