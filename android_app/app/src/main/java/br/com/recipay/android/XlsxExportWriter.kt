@@ -8,6 +8,7 @@ import java.security.MessageDigest
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.text.Normalizer
 import java.util.UUID
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
@@ -20,10 +21,26 @@ object XlsxExportWriter {
     fun write(output: OutputStream, receipts: List<LocalReceipt>, collaborators: List<LocalCollaborator>) {
         require(receipts.isNotEmpty()) { "Cadastre pelo menos uma despesa antes de exportar." }
         val collaboratorsById = collaborators.associateBy { it.id }
-        val selectedCollaborators = receipts.map { r ->
-            val id = r.collaboratorId ?: error("A despesa de ${r.collaborator} não está vinculada a um colaborador.")
-            collaboratorsById[id] ?: error("Colaborador da despesa ${r.collaborator} não foi encontrado.")
-        }.distinctBy { it.externalId }
+        fun normalizeName(value: String): String = Normalizer.normalize(value.trim(), Normalizer.Form.NFD)
+            .replace("\\p{Mn}+".toRegex(), "")
+            .replace("\\s+".toRegex(), " ")
+            .lowercase(Locale.ROOT)
+        val collaboratorsByName = collaborators.groupBy { normalizeName(it.name) }
+        // Older/imported expenses may have a display name but no collaborator_id.
+        // Resolve by exact normalized name; reject missing or ambiguous matches.
+        val resolvedCollaboratorByReceiptId = receipts.associate { receipt ->
+            val linked = receipt.collaboratorId?.let(collaboratorsById::get)
+            val matches = collaboratorsByName[normalizeName(receipt.collaborator)].orEmpty()
+            val resolved = linked ?: matches.singleOrNull() ?: error(
+                if (matches.isEmpty())
+                    "A despesa de ${receipt.collaborator} não corresponde a nenhum colaborador cadastrado."
+                else
+                    "Há mais de um colaborador chamado ${receipt.collaborator}. Corrija os nomes para exportar com segurança."
+            )
+            receipt.externalId to resolved
+        }
+        val selectedCollaborators = receipts.map { resolvedCollaboratorByReceiptId.getValue(it.externalId) }
+            .distinctBy { it.externalId }
 
         data class Attachment(val bytes: ByteArray, val hash: String, val extension: String)
         val attachments = receipts.associate { r ->
@@ -41,7 +58,7 @@ object XlsxExportWriter {
         }
         val receiptJson = JSONArray()
         sorted.forEach { r ->
-            val c = collaboratorsById[r.collaboratorId] ?: error("Colaborador não encontrado.")
+            val c = resolvedCollaboratorByReceiptId.getValue(r.externalId)
             val a = attachments.getValue(r.externalId)
             receiptJson.put(JSONObject().put("id", r.externalId).put("ref", reference(r.externalId))
                 .put("colaborador_id", c.externalId).put("equipe", c.team).put("valor_centavos", r.amountCents)
@@ -70,7 +87,7 @@ object XlsxExportWriter {
         val receiptRows = mutableListOf<List<Any?>>()
         receiptRows += listOf("Ref", "Data", "Colaborador", "Equipe", "Descrição", "Valor (R$)", "Categoria")
         sorted.forEach { r ->
-            val c = collaboratorsById[r.collaboratorId]!!
+            val c = resolvedCollaboratorByReceiptId.getValue(r.externalId)
             receiptRows += listOf(reference(r.externalId), r.expenseDate, c.name, c.team, r.description, r.amountCents / 100.0, "Outros")
         }
         receiptRows += emptyList<Any?>()
