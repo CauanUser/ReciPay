@@ -78,7 +78,7 @@ object XlsxExportWriter {
         receiptRows += emptyList<Any?>()
         receiptRows += listOf("Enviado por Supervisor Android em " + java.time.LocalDate.now().format(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy")) + ". Importe esta planilha no Union; não altere os valores.")
         val collaboratorRows = mutableListOf<List<Any?>>()
-        collaboratorRows += listOf("Nome", "Equipe", "Função", "Tipo da chave", "Chave Pix", "Titular")
+        collaboratorRows += listOf("Nome", "Equipe", "Tipo da chave", "Chave Pix", "Titular")
         selectedCollaborators.forEach { c ->
             val label = when (c.pixType) {
                 "EMAIL" -> "E-mail"
@@ -86,17 +86,17 @@ object XlsxExportWriter {
                 "ALEATORIA" -> "Chave aleatória"
                 else -> c.pixType
             }
-            collaboratorRows += listOf(c.name, c.team, c.role, label, c.pixKey, c.pixHolder)
+            collaboratorRows += listOf(c.name, c.team, label, c.pixKey, c.pixHolder)
         }
         val proofRows = mutableListOf<List<Any?>>()
         proofRows += listOf("Ref", "Colaborador", "Valor (R$)", "Comprovante")
         sorted.forEach { r ->
             val c = collaboratorsById[r.collaboratorId]!!
-            proofRows += listOf(reference(r.externalId), c.name, r.amountCents / 100.0, "Comprovante incluído na planilha")
+            proofRows += listOf(reference(r.externalId), c.name, r.amountCents / 100.0, null)
         }
         val sheets = listOf(
             Sheet("Recibos", receiptRows, widths = listOf(12, 12, 30, 16, 40, 14, 26)),
-            Sheet("Colaboradores", collaboratorRows, widths = listOf(30, 16, 16, 36, 30)),
+            Sheet("Colaboradores", collaboratorRows, widths = listOf(30, 16, 20, 30, 30)),
             Sheet("Comprovantes", proofRows, widths = listOf(12, 30, 14, 40)),
             Sheet("_recipay", hiddenRows, true)
         )
