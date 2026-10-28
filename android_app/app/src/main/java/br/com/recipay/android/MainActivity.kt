@@ -28,6 +28,8 @@ import android.widget.Toast
 import java.io.File
 import java.text.NumberFormat
 import java.util.Locale
+import java.util.zip.ZipFile
+import javax.xml.parsers.DocumentBuilderFactory
 
 class MainActivity : Activity() {
     private lateinit var database: ReceiptDatabase
@@ -868,6 +870,39 @@ class MainActivity : Activity() {
         startActivityForResult(intent, REQUEST_RETURN)
     }
 
+    private fun validateGeneratedXlsx(file: File) {
+        require(file.isFile && file.length() > 0L) { "o arquivo gerado está vazio" }
+        ZipFile(file).use { zip ->
+            val required = listOf(
+                "[Content_Types].xml",
+                "_rels/.rels",
+                "xl/workbook.xml",
+                "xl/_rels/workbook.xml.rels",
+                "xl/styles.xml",
+                "xl/worksheets/sheet1.xml",
+                "xl/worksheets/sheet2.xml",
+                "xl/worksheets/sheet3.xml",
+                "xl/worksheets/sheet4.xml"
+            )
+            required.forEach { path -> require(zip.getEntry(path) != null) { "faltou o componente $path" } }
+            val factory = DocumentBuilderFactory.newInstance().apply {
+                setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
+                setFeature("http://xml.org/sax/features/external-general-entities", false)
+                setFeature("http://xml.org/sax/features/external-parameter-entities", false)
+                isXIncludeAware = false
+                isExpandEntityReferences = false
+            }
+            required.filter { it.endsWith(".xml") }.forEach { path ->
+                val entry = zip.getEntry(path)
+                zip.getInputStream(entry).use { input -> factory.newDocumentBuilder().parse(input) }
+            }
+            val workbook = zip.getInputStream(zip.getEntry("xl/workbook.xml")).bufferedReader().use { it.readText() }
+            listOf("Recibos", "Colaboradores", "Comprovantes", "_recipay").forEach { name ->
+                require(workbook.contains("name=\"$name\"")) { "a aba $name não foi encontrada" }
+            }
+        }
+    }
+
     private fun exportReceipts() {
         if (database.listReceipts().isEmpty()) {
             toast("Cadastre pelo menos uma despesa antes de exportar.")
@@ -1066,14 +1101,24 @@ class MainActivity : Activity() {
             return
         }
         if (requestCode == REQUEST_EXPORT) {
+            var temporaryXlsx: File? = null
             try {
-                contentResolver.openOutputStream(data.data!!).use { output ->
-                    if (output == null) error("Não foi possível criar a planilha.")
+                // Build and validate locally first: never leave a half-written .xlsx at the destination.
+                temporaryXlsx = File(cacheDir, "recipay_export_${System.currentTimeMillis()}.xlsx")
+                temporaryXlsx.outputStream().use { output ->
                     XlsxExportWriter.write(output, database.listReceipts(), database.listCollaborators())
                 }
-                toast("Planilha criada. Envie o arquivo ao Gestor para importar no Recipay.")
+                validateGeneratedXlsx(temporaryXlsx!!)
+                contentResolver.openOutputStream(data.data!!, "wt").use { output ->
+                    if (output == null) error("Não foi possível gravar a planilha no destino escolhido.")
+                    temporaryXlsx!!.inputStream().use { input -> input.copyTo(output) }
+                    output.flush()
+                }
+                toast("Planilha criada e validada. Envie o arquivo ao Gestor para importar no Recipay.")
             } catch (error: Exception) {
-                toast(error.message ?: "Não foi possível exportar as despesas.")
+                toast("Falha ao validar a planilha: ${error.message ?: "arquivo inválido"}. Tente exportar novamente.")
+            } finally {
+                temporaryXlsx?.delete()
             }
             return
         }
