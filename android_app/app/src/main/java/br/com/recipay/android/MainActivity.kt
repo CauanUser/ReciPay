@@ -1125,12 +1125,13 @@ class MainActivity : Activity() {
             val temporaryXlsx = pendingExportFile
             pendingExportFile = null
             try {
-                if (data?.data == null) error("Nenhum local de destino foi selecionado.")
+                val destinationUri = data?.data
+                    ?: error("Nenhum local de destino foi selecionado.")
                 if (temporaryXlsx == null || !temporaryXlsx.isFile || temporaryXlsx.length() == 0L) {
                     error("A planilha temporária não existe ou está vazia. Tente exportar novamente.")
                 }
                 val expectedSize = temporaryXlsx.length()
-                val copiedBytes = contentResolver.openOutputStream(data.data!!, "wt")?.use { output ->
+                val copiedBytes = contentResolver.openOutputStream(destinationUri, "wt")?.use { output ->
                     temporaryXlsx.inputStream().use { input -> input.copyTo(output) }.also { output.flush() }
                 } ?: error("O Android não abriu o arquivo de destino para gravação.")
                 require(copiedBytes == expectedSize && copiedBytes > 0L) {
