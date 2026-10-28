@@ -108,7 +108,7 @@ object XlsxExportWriter {
         val proofRows = mutableListOf<List<Any?>>()
         proofRows += listOf("Ref", "Colaborador", "Valor (R$)", "Comprovante")
         sorted.forEach { r ->
-            val c = collaboratorsById[r.collaboratorId]!!
+            val c = resolvedCollaboratorByReceiptId.getValue(r.externalId)
             proofRows += listOf(reference(r.externalId), c.name, r.amountCents / 100.0, null)
         }
         val sheets = listOf(
